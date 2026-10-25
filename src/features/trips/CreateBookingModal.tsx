@@ -63,19 +63,26 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
     const bookingId = `book-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const parsedCost = parseFloat(cost);
 
+    const toOptionalIso = (val: string): string | undefined => {
+      const trimmed = val.trim();
+      if (!trimmed) return undefined;
+      const ms = Date.parse(trimmed);
+      return Number.isNaN(ms) ? trimmed : new Date(ms).toISOString();
+    };
+
     const candidate: Record<string, unknown> = {
       id: bookingId,
       tripId,
       type,
       provider: provider.trim(),
       location: location.trim(),
-      startTime: startTime ? new Date(startTime).toISOString() : '',
-      endTime: endTime ? new Date(endTime).toISOString() : undefined,
+      startTime: toOptionalIso(startTime),
+      endTime: toOptionalIso(endTime),
       cost: isNaN(parsedCost) ? -1 : parsedCost,
       currency: currency.trim() || 'INR',
       status,
-      cancellationDeadline: cancellationDeadline ? new Date(cancellationDeadline).toISOString() : undefined,
-      arrivalDeadline: arrivalDeadline ? new Date(arrivalDeadline).toISOString() : undefined,
+      cancellationDeadline: toOptionalIso(cancellationDeadline),
+      arrivalDeadline: toOptionalIso(arrivalDeadline),
       cancellationPolicyNotes: cancellationPolicyNotes.trim() || undefined,
       notes: notes.trim() || undefined,
       confirmationReference: confirmationReference.trim() || undefined,
@@ -167,11 +174,11 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Input
-            label="Start Time / Departure / Check-In"
+            label={type === 'flight' || type === 'train' ? 'Departure Time (Required)' : 'Start Time / Check-In (Optional)'}
             type="datetime-local"
             value={startTime}
             onChange={(e) => setStartTime(e.target.value)}
-            required
+            required={type === 'flight' || type === 'train'}
           />
           <Input
             label="End Time / Arrival / Check-Out (Optional)"

@@ -197,6 +197,7 @@ export const TripDetailView: React.FC<TripDetailViewProps> = ({
           activeTrip={trip}
           onSelectTrip={() => {}}
           onLoadSample={() => {}}
+          onGoToBookings={() => setActiveSection('bookings')}
         />
       ) : (
         <>

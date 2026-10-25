@@ -4,6 +4,7 @@ import { DisruptionInput } from '../../domain/disruptions/disruption.types';
 import { propagateDisruption } from '../../domain/disruptions/propagation.engine';
 import {
   RecoveryOption,
+  RecoveryPlan,
   RecoveryPriority,
   ActionItem,
 } from '../../domain/recovery/recovery.types';
@@ -43,6 +44,7 @@ export interface RecoveryPlannerViewProps {
   activeTrip: Trip | null;
   onSelectTrip: (tripId: string) => void;
   onLoadSample: () => void;
+  onGoToBookings?: () => void;
 }
 
 export const RecoveryPlannerView: React.FC<RecoveryPlannerViewProps> = ({
@@ -50,44 +52,85 @@ export const RecoveryPlannerView: React.FC<RecoveryPlannerViewProps> = ({
   activeTrip,
   onSelectTrip,
   onLoadSample,
+  onGoToBookings,
 }) => {
-  // Disruption state
-  const [selectedBookingId, setSelectedBookingId] = useState<string>(
-    activeTrip?.bookings[0]?.id || ''
-  );
+  // Synchronous trip tracking to prevent any transient render with stale state
+  const [prevTripId, setPrevTripId] = useState<string | undefined>(activeTrip?.id);
+  const [completedActionKeys, setCompletedActionKeys] = useState<Record<string, boolean>>({});
+  const [selectedPlanIdByTrip, setSelectedPlanIdByTrip] = useState<Record<string, string | null>>({});
+  const [customOptionsByTrip, setCustomOptionsByTrip] = useState<Record<string, RecoveryOption[]>>({});
+  const [selectedBookingIdByTrip, setSelectedBookingIdByTrip] = useState<Record<string, string>>({});
+  const [criticalBookingIdsByTrip, setCriticalBookingIdsByTrip] = useState<Record<string, string[]>>({});
+
+  // Synchronously reset completion state when activeTrip changes
+  if (activeTrip?.id !== prevTripId) {
+    setPrevTripId(activeTrip?.id);
+    setCompletedActionKeys({});
+  }
+
+  // Disruption inputs (type, duration, recorded)
   const [disruptionType, setDisruptionType] = useState<'delay' | 'cancellation'>('delay');
   const [delayMinutes, setDelayMinutes] = useState<string>('240'); // Default 4-hour delay
   const [disruptionRecorded, setDisruptionRecorded] = useState<boolean>(true);
-
-  // Recovery options state
-  const [candidateOptions, setCandidateOptions] = useState<RecoveryOption[]>(
-    activeTrip?.id === DEMO_TRIP_ID ? (DEMO_RECOVERY_OPTIONS as RecoveryOption[]) : []
-  );
   const [isAddOptionOpen, setIsAddOptionOpen] = useState<boolean>(false);
 
   // Recovery constraints & priority
   const [priority, setPriority] = useState<RecoveryPriority>('preserve-activity');
   const [maxBudget, setMaxBudget] = useState<string>('');
-  const [experienceValue, setExperienceValue] = useState<string>('85'); // Scuba diving value
-  const [criticalBookingIds, setCriticalBookingIds] = useState<string[]>(['demo-booking-scuba-1']);
+  const [experienceValue, setExperienceValue] = useState<string>('85'); // Default activity rating
 
-  // Selected plan for action list
-  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
-  const [completedActionIds, setCompletedActionIds] = useState<Record<string, boolean>>({});
-
-  // Sync candidate options if trip changes
-  React.useEffect(() => {
-    if (activeTrip?.id === DEMO_TRIP_ID && candidateOptions.length === 0) {
-      setCandidateOptions(DEMO_RECOVERY_OPTIONS as RecoveryOption[]);
-      setSelectedBookingId('demo-booking-flight-1');
-    } else if (activeTrip && activeTrip.bookings.length > 0 && !selectedBookingId) {
-      setSelectedBookingId(activeTrip.bookings[0]?.id || '');
+  // Derived: Selected booking strictly validated against activeTrip's current bookings
+  const selectedBookingId = useMemo(() => {
+    if (!activeTrip || activeTrip.bookings.length === 0) return '';
+    const chosen = selectedBookingIdByTrip[activeTrip.id];
+    if (chosen && activeTrip.bookings.some((b) => b.id === chosen)) {
+      return chosen;
     }
-  }, [activeTrip, candidateOptions.length, selectedBookingId]);
+    // Default for demo trip: demo flight if present
+    if (activeTrip.id === DEMO_TRIP_ID && activeTrip.bookings.some((b) => b.id === 'demo-booking-flight-1')) {
+      return 'demo-booking-flight-1';
+    }
+    // Default for any trip: first booking
+    return activeTrip.bookings[0]?.id || '';
+  }, [activeTrip, selectedBookingIdByTrip]);
+
+  // Derived: Candidate recovery options scoped strictly to activeTrip
+  const candidateOptions = useMemo(() => {
+    if (!activeTrip || activeTrip.bookings.length === 0) return [];
+    const base = activeTrip.id === DEMO_TRIP_ID ? (DEMO_RECOVERY_OPTIONS as RecoveryOption[]) : [];
+    const custom = customOptionsByTrip[activeTrip.id] || [];
+    const all = [...base, ...custom];
+    const tripBookingIds = new Set(activeTrip.bookings.map((b) => b.id));
+    const optionIds = new Set(all.map((o) => o.id));
+
+    // Ensure every recovery option belongs to activeTrip and targets a valid booking of activeTrip or primary option
+    return all.filter(
+      (opt) =>
+        opt.tripId === activeTrip.id &&
+        (tripBookingIds.has(opt.targetBookingId) || optionIds.has(opt.targetBookingId))
+    );
+  }, [activeTrip, customOptionsByTrip]);
+
+  // Derived: Critical booking IDs scoped strictly to activeTrip
+  const criticalBookingIds = useMemo(() => {
+    if (!activeTrip || activeTrip.bookings.length === 0) return [];
+    const tripBookingIds = new Set(activeTrip.bookings.map((b) => b.id));
+    const customChoice = criticalBookingIdsByTrip[activeTrip.id];
+    if (customChoice !== undefined) {
+      return customChoice.filter((id) => tripBookingIds.has(id));
+    }
+    if (activeTrip.id === DEMO_TRIP_ID && tripBookingIds.has('demo-booking-scuba-1')) {
+      return ['demo-booking-scuba-1'];
+    }
+    return [];
+  }, [activeTrip, criticalBookingIdsByTrip]);
 
   // Evaluate disruption propagation
   const disruptionInput: DisruptionInput | null = useMemo(() => {
-    if (!disruptionRecorded || !selectedBookingId) return null;
+    if (!disruptionRecorded || !selectedBookingId || !activeTrip) return null;
+    const exists = activeTrip.bookings.some((b) => b.id === selectedBookingId);
+    if (!exists) return null;
+
     if (disruptionType === 'cancellation') {
       return {
         type: 'cancellation',
@@ -99,7 +142,7 @@ export const RecoveryPlannerView: React.FC<RecoveryPlannerViewProps> = ({
       targetBookingId: selectedBookingId,
       delayMinutes: Math.max(0, parseInt(delayMinutes, 10) || 0),
     };
-  }, [disruptionRecorded, selectedBookingId, disruptionType, delayMinutes]);
+  }, [disruptionRecorded, selectedBookingId, activeTrip, disruptionType, delayMinutes]);
 
   const disruptionResult = useMemo(() => {
     if (!activeTrip || !disruptionInput) return null;
@@ -108,14 +151,13 @@ export const RecoveryPlannerView: React.FC<RecoveryPlannerViewProps> = ({
 
   // Generate candidate recovery plans
   const evaluatedPlans = useMemo(() => {
-    if (!activeTrip) return [];
+    if (!activeTrip || activeTrip.bookings.length === 0 || candidateOptions.length === 0) return [];
 
     const budgetNum = maxBudget.trim() !== '' ? parseFloat(maxBudget) : undefined;
     const expNum = experienceValue.trim() !== '' ? parseFloat(experienceValue) : 0;
 
     const expMap: Record<string, number> = {};
     if (expNum > 0) {
-      // Assign experience value to prepaid activity
       const activity = activeTrip.bookings.find((b) => b.type === 'activity');
       if (activity) {
         expMap[activity.id] = expNum;
@@ -138,38 +180,91 @@ export const RecoveryPlannerView: React.FC<RecoveryPlannerViewProps> = ({
   // Selected plan and generated action plan
   const activePlan = useMemo(() => {
     if (!evaluatedPlans || evaluatedPlans.length === 0) return null;
-    if (selectedPlanId) {
-      const found = evaluatedPlans.find((p) => p.id === selectedPlanId);
+    const preferredId = activeTrip ? selectedPlanIdByTrip[activeTrip.id] : null;
+    if (preferredId) {
+      const found = evaluatedPlans.find((p) => p.id === preferredId);
       if (found) return found;
     }
     return evaluatedPlans[0] || null;
-  }, [evaluatedPlans, selectedPlanId]);
+  }, [evaluatedPlans, activeTrip, selectedPlanIdByTrip]);
 
   const actionItems: ActionItem[] = useMemo(() => {
     if (!activePlan || !activeTrip) return [];
     return generateActionPlan(activePlan, activeTrip);
   }, [activePlan, activeTrip]);
 
-  const handleApplyDemoDisruption = () => {
+  // Stable plan/action identity key to prevent checkbox state leaks
+  const getActionKey = (tripId: string, plan: RecoveryPlan, item: ActionItem) => {
+    return `${tripId}:::${plan.name}:::${item.action}:::${item.provider}`;
+  };
+
+  const toggleActionComplete = (item: ActionItem) => {
+    if (!activeTrip || !activePlan) return;
+    const key = getActionKey(activeTrip.id, activePlan, item);
+    setCompletedActionKeys((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  const isActionCompleted = (item: ActionItem) => {
+    if (!activeTrip || !activePlan) return false;
+    const key = getActionKey(activeTrip.id, activePlan, item);
+    return !!completedActionKeys[key];
+  };
+
+  const handleSelectBooking = (bookingId: string) => {
     if (!activeTrip) return;
-    setSelectedBookingId(DEMO_DISRUPTION.targetBookingId);
-    setDisruptionType(DEMO_DISRUPTION.type);
-    setDelayMinutes(String(DEMO_DISRUPTION.delayMinutes));
-    setDisruptionRecorded(true);
-    setCandidateOptions(DEMO_RECOVERY_OPTIONS as RecoveryOption[]);
+    setSelectedBookingIdByTrip((prev) => ({
+      ...prev,
+      [activeTrip.id]: bookingId,
+    }));
   };
 
   const handleToggleCritical = (bookingId: string) => {
-    setCriticalBookingIds((curr) =>
-      curr.includes(bookingId) ? curr.filter((id) => id !== bookingId) : [...curr, bookingId]
-    );
+    if (!activeTrip) return;
+    setCriticalBookingIdsByTrip((prev) => {
+      const current = criticalBookingIds.includes(bookingId)
+        ? criticalBookingIds.filter((id) => id !== bookingId)
+        : [...criticalBookingIds, bookingId];
+      return {
+        ...prev,
+        [activeTrip.id]: current,
+      };
+    });
   };
 
-  const toggleActionComplete = (actionId: string) => {
-    setCompletedActionIds((curr) => ({
-      ...curr,
-      [actionId]: !curr[actionId],
+  const handleSelectPlan = (planId: string) => {
+    if (!activeTrip) return;
+    setSelectedPlanIdByTrip((prev) => ({
+      ...prev,
+      [activeTrip.id]: planId,
     }));
+  };
+
+  const handleAddOption = (newOpt: RecoveryOption) => {
+    if (!activeTrip) return;
+    setCustomOptionsByTrip((prev) => ({
+      ...prev,
+      [activeTrip.id]: [...(prev[activeTrip.id] || []), newOpt],
+    }));
+  };
+
+  const handleApplyDemoDisruption = () => {
+    if (!activeTrip) return;
+    setSelectedBookingIdByTrip((prev) => ({
+      ...prev,
+      [activeTrip.id]: DEMO_DISRUPTION.targetBookingId,
+    }));
+    setDisruptionType(DEMO_DISRUPTION.type);
+    setDelayMinutes(String(DEMO_DISRUPTION.delayMinutes));
+    setDisruptionRecorded(true);
+    setCustomOptionsByTrip((prev) => {
+      const copy = { ...prev };
+      delete copy[activeTrip.id];
+      return copy;
+    });
+    setCompletedActionKeys({});
   };
 
   if (!activeTrip) {
@@ -212,6 +307,66 @@ export const RecoveryPlannerView: React.FC<RecoveryPlannerViewProps> = ({
               <Sparkles className="w-4 h-4 mr-1.5 text-amber-300" />
               Load Sample Trip (Hyderabad → Goa)
             </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  // Accessible empty state for itineraries without any bookings
+  if (activeTrip.bookings.length === 0) {
+    return (
+      <div className="max-w-4xl mx-auto space-y-6" data-testid="empty-itinerary-state">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge variant="outline" className="text-primary border-primary/30 font-semibold text-xs">
+              Recovery Planner
+            </Badge>
+            {activeTrip.isSample && (
+              <Badge variant="simulated" className="text-xs">
+                Simulated Demonstration Itinerary
+              </Badge>
+            )}
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
+            Recovery Planner: {activeTrip.name}
+          </h1>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {activeTrip.origin} → {activeTrip.destination}
+          </p>
+        </div>
+
+        <Card className="border-dashed p-8 text-center space-y-4 bg-card/50">
+          <Compass className="w-10 h-10 text-muted-foreground mx-auto" />
+          <div className="space-y-1.5 max-w-md mx-auto">
+            <h3 className="text-lg font-semibold text-foreground">Empty Itinerary — No Bookings Available</h3>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              This itinerary currently has no bookings. At least one transport, lodging, or activity booking must be added to your trip before disruption simulation and recovery planning can proceed.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+            {onGoToBookings ? (
+              <Button variant="primary" size="sm" onClick={onGoToBookings}>
+                <Plus className="w-4 h-4 mr-1.5" />
+                Add Bookings to Itinerary
+              </Button>
+            ) : trips.length > 1 ? (
+              <Select
+                options={[
+                  { value: '', label: 'Select another trip...' },
+                  ...trips.map((t) => ({ value: t.id, label: t.name })),
+                ]}
+                value=""
+                onChange={(e) => onSelectTrip(e.target.value)}
+                className="max-w-xs text-xs"
+              />
+            ) : (
+              <Button variant="primary" size="sm" onClick={onLoadSample}>
+                <Sparkles className="w-4 h-4 mr-1.5 text-amber-300" />
+                Load Sample Trip (Hyderabad → Goa)
+              </Button>
+            )}
           </div>
         </Card>
       </div>
@@ -282,7 +437,7 @@ export const RecoveryPlannerView: React.FC<RecoveryPlannerViewProps> = ({
                 label: `${b.type.toUpperCase()}: ${b.provider}`,
               }))}
               value={selectedBookingId}
-              onChange={(e) => setSelectedBookingId(e.target.value)}
+              onChange={(e) => handleSelectBooking(e.target.value)}
             />
 
             <Select
@@ -741,7 +896,7 @@ export const RecoveryPlannerView: React.FC<RecoveryPlannerViewProps> = ({
                   <Button
                     variant={isSelected ? 'primary' : 'outline'}
                     size="sm"
-                    onClick={() => setSelectedPlanId(plan.id)}
+                    onClick={() => handleSelectPlan(plan.id)}
                     className="w-full text-xs font-semibold cursor-pointer"
                   >
                     {isSelected ? 'Active Plan (Viewing Action List)' : 'Select Plan & View Action List'}
@@ -756,7 +911,7 @@ export const RecoveryPlannerView: React.FC<RecoveryPlannerViewProps> = ({
 
       {/* Step 5: Action Plan Execution */}
       {activePlan && (
-        <Card className="border border-border bg-card shadow-sm">
+        <Card className="border border-border bg-card shadow-sm" data-testid="action-plan-checklist">
           <CardHeader className="pb-3 border-b border-border/60">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
@@ -781,7 +936,7 @@ export const RecoveryPlannerView: React.FC<RecoveryPlannerViewProps> = ({
             ) : (
               <div className="space-y-2.5">
                 {actionItems.map((item) => {
-                  const isDone = !!completedActionIds[item.id];
+                  const isDone = isActionCompleted(item);
                   const hasUnknownDeadline = item.deadlineType === 'unknown';
 
                   return (
@@ -795,8 +950,9 @@ export const RecoveryPlannerView: React.FC<RecoveryPlannerViewProps> = ({
                     >
                       <input
                         type="checkbox"
+                        data-testid="action-checkbox"
                         checked={isDone}
-                        onChange={() => toggleActionComplete(item.id)}
+                        onChange={() => toggleActionComplete(item)}
                         className="mt-1 rounded border-input text-primary focus:ring-primary h-4 w-4 cursor-pointer"
                       />
 
@@ -843,7 +999,7 @@ export const RecoveryPlannerView: React.FC<RecoveryPlannerViewProps> = ({
         trip={activeTrip}
         onClose={() => setIsAddOptionOpen(false)}
         onOptionAdded={(newOpt) => {
-          setCandidateOptions((curr) => [...curr, newOpt]);
+          handleAddOption(newOpt);
         }}
       />
     </div>

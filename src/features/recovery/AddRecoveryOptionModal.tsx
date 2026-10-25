@@ -46,6 +46,14 @@ export const AddRecoveryOptionModal: React.FC<AddRecoveryOptionModalProps> = ({
     label: `${b.type.toUpperCase()}: ${b.provider} (${b.location})`,
   }));
 
+  React.useEffect(() => {
+    if (isOpen) {
+      if (!targetBookingId || !trip.bookings.some((b) => b.id === targetBookingId)) {
+        setTargetBookingId(trip.bookings[0]?.id || '');
+      }
+    }
+  }, [isOpen, trip.id, trip.bookings, targetBookingId]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrors([]);

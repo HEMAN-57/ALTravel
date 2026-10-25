@@ -366,6 +366,7 @@ export const App: React.FC = () => {
           trips={trips}
           onSelectTrip={handleSelectTrip}
           onLoadSample={handleLoadSampleTrip}
+          onGoToBookings={() => setActiveTab('trips')}
         />
       )}
 
