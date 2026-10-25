@@ -15,7 +15,7 @@ import { TripCard } from './features/trips/TripCard';
 import { TripDetailView } from './features/trips/TripDetailView';
 import { EmptyState } from './features/trips/EmptyState';
 import { CreateTripModal } from './features/trips/CreateTripModal';
-import { RecoveryPlannerPlaceholder } from './features/trips/RecoveryPlannerPlaceholder';
+import { RecoveryPlannerView } from './features/recovery/RecoveryPlannerView';
 import { Button } from './components/ui/Button';
 import { Card, CardContent } from './components/ui/Card';
 import { Alert } from './components/ui/Alert';
@@ -361,12 +361,10 @@ export const App: React.FC = () => {
 
       {/* RECOVERY PLANNER TAB */}
       {activeTab === 'recovery' && (
-        <RecoveryPlannerPlaceholder
+        <RecoveryPlannerView
           activeTrip={activeTrip}
-          onSelectTrip={(id) => {
-            handleSelectTrip(id);
-            setActiveTab('trips');
-          }}
+          trips={trips}
+          onSelectTrip={handleSelectTrip}
           onLoadSample={handleLoadSampleTrip}
         />
       )}

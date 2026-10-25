@@ -3,6 +3,7 @@ import { Trip } from '../../domain/trips/trip.types';
 import { Booking } from '../../domain/bookings/booking.types';
 import { BookingItem } from './BookingItem';
 import { CreateBookingModal } from './CreateBookingModal';
+import { RecoveryPlannerView } from '../recovery/RecoveryPlannerView';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
@@ -35,6 +36,7 @@ export const TripDetailView: React.FC<TripDetailViewProps> = ({
   onDeleteTrip,
 }) => {
   const [isAddBookingOpen, setIsAddBookingOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<'bookings' | 'recovery'>('bookings');
 
   // Chronologically sort bookings by start time
   const sortedBookings = [...trip.bookings].sort(
@@ -160,101 +162,141 @@ export const TripDetailView: React.FC<TripDetailViewProps> = ({
         </Alert>
       )}
 
-      {/* Quick stats cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="p-3.5 rounded-xl border border-border bg-card flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-primary/10 text-primary">
-            <Layers className="w-4 h-4" />
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground font-medium block">Total Bookings</span>
-            <span className="text-lg font-bold text-foreground">{trip.bookings.length}</span>
-          </div>
-        </div>
+      {/* Section Switcher */}
+      <div className="flex items-center gap-2 border-b border-border pb-2">
+        <button
+          type="button"
+          onClick={() => setActiveSection('bookings')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 ${
+            activeSection === 'bookings'
+              ? 'bg-primary text-primary-foreground shadow-xs'
+              : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+          }`}
+        >
+          <Layers className="w-3.5 h-3.5" />
+          <span>Itinerary Bookings ({trip.bookings.length})</span>
+        </button>
 
-        <div className="p-3.5 rounded-xl border border-border bg-card flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-sky-500/10 text-sky-600">
-            <Plane className="w-4 h-4" />
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground font-medium block">Flights</span>
-            <span className="text-lg font-bold text-foreground">{flightCount}</span>
-          </div>
-        </div>
-
-        <div className="p-3.5 rounded-xl border border-border bg-card flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-purple-500/10 text-purple-600">
-            <Building className="w-4 h-4" />
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground font-medium block">Hotels</span>
-            <span className="text-lg font-bold text-foreground">{hotelCount}</span>
-          </div>
-        </div>
-
-        <div className="p-3.5 rounded-xl border border-border bg-card flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-teal-500/10 text-teal-600">
-            <Compass className="w-4 h-4" />
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground font-medium block">Activities</span>
-            <span className="text-lg font-bold text-foreground">{activityCount}</span>
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={() => setActiveSection('recovery')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 ${
+            activeSection === 'recovery'
+              ? 'bg-primary text-primary-foreground shadow-xs'
+              : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+          }`}
+        >
+          <Compass className="w-3.5 h-3.5" />
+          <span>Disruption Recovery Planner</span>
+        </button>
       </div>
 
-      {/* Bookings Timeline Section */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="space-y-0.5">
-            <h2 className="text-lg font-bold text-foreground tracking-tight">
-              Connected Bookings & Itinerary Segments
-            </h2>
-            <p className="text-xs text-muted-foreground">
-              Ordered chronologically by start / departure time.
-            </p>
+      {activeSection === 'recovery' ? (
+        <RecoveryPlannerView
+          trips={[trip]}
+          activeTrip={trip}
+          onSelectTrip={() => {}}
+          onLoadSample={() => {}}
+        />
+      ) : (
+        <>
+          {/* Quick stats cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="p-3.5 rounded-xl border border-border bg-card flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                <Layers className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-xs text-muted-foreground font-medium block">Total Bookings</span>
+                <span className="text-lg font-bold text-foreground">{trip.bookings.length}</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl border border-border bg-card flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-sky-500/10 text-sky-600">
+                <Plane className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-xs text-muted-foreground font-medium block">Flights</span>
+                <span className="text-lg font-bold text-foreground">{flightCount}</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl border border-border bg-card flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-purple-500/10 text-purple-600">
+                <Building className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-xs text-muted-foreground font-medium block">Hotels</span>
+                <span className="text-lg font-bold text-foreground">{hotelCount}</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl border border-border bg-card flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-teal-500/10 text-teal-600">
+                <Compass className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-xs text-muted-foreground font-medium block">Activities</span>
+                <span className="text-lg font-bold text-foreground">{activityCount}</span>
+              </div>
+            </div>
           </div>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsAddBookingOpen(true)}
-            className="text-xs"
-          >
-            <Plus className="w-3.5 h-3.5 mr-1.5" />
-            Add Segment
-          </Button>
-        </div>
+          {/* Bookings Timeline Section */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <h2 className="text-lg font-bold text-foreground tracking-tight">
+                  Connected Bookings & Itinerary Segments
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  Ordered chronologically by start / departure time.
+                </p>
+              </div>
 
-        {sortedBookings.length === 0 ? (
-          <Card className="border-dashed bg-card/40 p-8 text-center space-y-3">
-            <Receipt className="w-8 h-8 text-muted-foreground mx-auto" />
-            <h4 className="text-base font-semibold text-foreground">No bookings added yet</h4>
-            <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-              Add your outbound flight, train ticket, hotel stay, or prepaid activities to begin modelling connection deadlines.
-            </p>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => setIsAddBookingOpen(true)}
-              className="mt-2"
-            >
-              <Plus className="w-3.5 h-3.5 mr-1" />
-              Add First Booking
-            </Button>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {sortedBookings.map((b) => (
-              <BookingItem
-                key={b.id}
-                booking={b}
-                onDelete={handleDeleteBooking}
-              />
-            ))}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsAddBookingOpen(true)}
+                className="text-xs"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1.5" />
+                Add Segment
+              </Button>
+            </div>
+
+            {sortedBookings.length === 0 ? (
+              <Card className="border-dashed bg-card/40 p-8 text-center space-y-3">
+                <Receipt className="w-8 h-8 text-muted-foreground mx-auto" />
+                <h4 className="text-base font-semibold text-foreground">No bookings added yet</h4>
+                <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                  Add your outbound flight, train ticket, hotel stay, or prepaid activities to begin modelling connection deadlines.
+                </p>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setIsAddBookingOpen(true)}
+                  className="mt-2"
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1" />
+                  Add First Booking
+                </Button>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {sortedBookings.map((b) => (
+                  <BookingItem
+                    key={b.id}
+                    booking={b}
+                    onDelete={handleDeleteBooking}
+                  />
+                ))}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
 
       {/* Add Booking Modal Dialog */}
       <CreateBookingModal

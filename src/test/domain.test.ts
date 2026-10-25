@@ -113,6 +113,37 @@ describe('Domain Model: Booking Validation', () => {
     expect(result.errors.some((e) => e.includes('Arrival deadline, if provided, must be a valid date/time string'))).toBe(true);
   });
 
+  it('rejects booking with empty string arrivalDeadline, cancellationDeadline, or endTime', () => {
+    const invalidEmptyTimes = {
+      ...validBookingData,
+      endTime: '',
+      cancellationDeadline: '',
+      arrivalDeadline: '',
+    };
+    const result = validateBooking(invalidEmptyTimes);
+    expect(result.success).toBe(false);
+    expect(result.errors.some((e) => e.includes('End time, if specified, must be a valid date/time string'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('Cancellation deadline, if provided, must be a valid date/time string'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('Arrival deadline, if provided, must be a valid date/time string'))).toBe(true);
+  });
+
+  it('rejects empty string startTime even for an activity, while accepting undefined', () => {
+    const activityEmptyStart = {
+      id: 'act-empty-start',
+      tripId: 't-1',
+      type: 'activity',
+      provider: 'Goa Scuba Tour',
+      location: 'Grand Island, Goa',
+      startTime: '', // empty string must be rejected
+      cost: 3500,
+      currency: 'INR',
+      status: 'confirmed',
+    };
+    const result = validateBooking(activityEmptyStart);
+    expect(result.success).toBe(false);
+    expect(result.errors.some((e) => e.includes('Start time is required and must be a valid date/time string'))).toBe(true);
+  });
+
   it('accepts activity booking with undefined startTime representing unscheduled timing', () => {
     const unscheduledActivity = {
       id: 'act-unscheduled',

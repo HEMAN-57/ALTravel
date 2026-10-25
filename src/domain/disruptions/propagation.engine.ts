@@ -56,29 +56,29 @@ export function propagateDisruption(
     }
     const bId = booking.id || `#${i + 1}`;
 
-    // startTime validation (if provided, must be a valid date string or empty indicating missing)
-    if (booking.startTime !== undefined && booking.startTime !== '') {
+    // startTime validation (if provided, must be a valid non-empty date string; undefined is preserved for unscheduled bookings)
+    if (booking.startTime !== undefined) {
       if (typeof booking.startTime !== 'string' || !isValidDateString(booking.startTime)) {
-        tripValidationErrors.push(`Booking "${bId}" has invalid startTime: "${String(booking.startTime)}".`);
+        tripValidationErrors.push(`Booking "${bId}" has invalid startTime: "${String(booking.startTime)}". Empty strings are not permitted; use undefined for unscheduled bookings.`);
       }
     }
 
-    // endTime validation (if provided, must be a valid date string)
-    if (booking.endTime !== undefined && booking.endTime !== null && booking.endTime !== '') {
+    // endTime validation (if provided, must be a valid non-empty date string)
+    if (booking.endTime !== undefined && booking.endTime !== null) {
       if (typeof booking.endTime !== 'string' || !isValidDateString(booking.endTime)) {
         tripValidationErrors.push(`Booking "${bId}" has invalid endTime: "${String(booking.endTime)}".`);
       }
     }
 
     // arrivalDeadline validation
-    if (booking.arrivalDeadline !== undefined && booking.arrivalDeadline !== null && booking.arrivalDeadline !== '') {
+    if (booking.arrivalDeadline !== undefined && booking.arrivalDeadline !== null) {
       if (typeof booking.arrivalDeadline !== 'string' || !isValidDateString(booking.arrivalDeadline)) {
         tripValidationErrors.push(`Booking "${bId}" has invalid arrivalDeadline: "${String(booking.arrivalDeadline)}".`);
       }
     }
 
     // cancellationDeadline validation
-    if (booking.cancellationDeadline !== undefined && booking.cancellationDeadline !== null && booking.cancellationDeadline !== '') {
+    if (booking.cancellationDeadline !== undefined && booking.cancellationDeadline !== null) {
       if (typeof booking.cancellationDeadline !== 'string' || !isValidDateString(booking.cancellationDeadline)) {
         tripValidationErrors.push(`Booking "${bId}" has invalid cancellationDeadline: "${String(booking.cancellationDeadline)}".`);
       }
@@ -624,13 +624,13 @@ function evaluateDependencyImpact(
         };
       }
 
-      // Arrival is confirmed safe within the verified deadline
+      // Arrival is within the recorded cutoff window
       return {
         impact: {
           bookingId: downstream.id,
           status: 'unaffected',
-          cause: 'Arrival precedes confirmed check-in cutoff.',
-          explanation: `The reservation is confirmed safe: revised arrival (${upstreamArrivalStr}) is within the hotel's confirmed check-in cutoff (${downstream.arrivalDeadline}).`,
+          cause: 'Arrival precedes recorded check-in cutoff.',
+          explanation: `Arrival (${upstreamArrivalStr}) is within the recorded check-in cutoff (${downstream.arrivalDeadline}), but the provider's actual policy and reservation status are not independently verified.`,
           originalStartTime: downstream.startTime,
           originalEndTime: downstream.endTime,
           revisedStartTime: downstream.startTime,
@@ -705,8 +705,8 @@ function evaluateDependencyImpact(
         status: 'unaffected',
         cause: dep.commitmentType === 'flexible' ? 'Flexible check-in window.' : 'Scheduled on-time arrival.',
         explanation: dep.commitmentType === 'flexible'
-          ? `The reservation is confirmed safe: hotel check-in arrangement is flexible and arrival remains on schedule.`
-          : `The reservation is confirmed safe: arrival is on schedule at the original planned time.`,
+          ? `Arrival is on schedule and within the recorded flexible check-in window, but provider policies and reservation status are not independently verified.`
+          : `Arrival is on schedule and within the recorded window, but provider policies and reservation status are not independently verified.`,
         originalStartTime: downstream.startTime,
         originalEndTime: downstream.endTime,
         revisedStartTime: downstream.startTime,

@@ -95,3 +95,75 @@ export const SAMPLE_TRIP: Trip = {
     },
   ],
 };
+
+export const DEMO_DISRUPTION = {
+  type: 'delay' as const,
+  targetBookingId: 'demo-booking-flight-1',
+  delayMinutes: 240, // 4-hour flight delay
+};
+
+export const DEMO_RECOVERY_OPTIONS = [
+  {
+    id: 'demo-opt-flight-alt',
+    tripId: DEMO_TRIP_ID,
+    title: 'Alternative Flight: Air India Express IX-412 (Simulated)',
+    description: 'Direct alternative flight departing at 11:30 and arriving at 13:00. Fast arrival preserves both resort check-in and next-morning Scuba Diving.',
+    type: 'alternative-transport' as const,
+    additionalCost: 4200,
+    currency: 'INR',
+    targetBookingId: 'demo-booking-flight-1',
+    expectedDepartureTime: '2026-11-12T11:30:00+05:30',
+    expectedArrivalTime: '2026-11-12T13:00:00+05:30',
+    deadline: '2026-11-12T10:15:00+05:30',
+    deadlineType: 'user-entered' as const,
+    isSimulated: true, // Visibly labelled as simulated demo data
+    notes: 'Simulated fare and schedule for demonstration purposes only.',
+  },
+  {
+    id: 'demo-opt-train-alt',
+    tripId: DEMO_TRIP_ID,
+    title: 'Budget Train: Vande Bharat Express (Simulated)',
+    description: 'Economical afternoon train departing 12:00, arriving in Goa at 20:30. Reaches hotel within check-in window (23:59), but late arrival forfeits next morning 07:00 scuba diving excursion.',
+    type: 'alternative-transport' as const,
+    additionalCost: 950,
+    currency: 'INR',
+    targetBookingId: 'demo-booking-flight-1',
+    expectedDepartureTime: '2026-11-12T12:00:00+05:30',
+    expectedArrivalTime: '2026-11-12T20:30:00+05:30',
+    deadline: '2026-11-12T11:00:00+05:30',
+    deadlineType: 'user-entered' as const,
+    isSimulated: true, // Visibly labelled as simulated demo data
+    notes: 'Simulated train fare and schedule for demonstration purposes only.',
+  },
+  {
+    id: 'demo-opt-local-cab',
+    tripId: DEMO_TRIP_ID,
+    title: 'Airport Prepaid Direct Cab (Local Ground Transit)',
+    description: 'User-entered private airport taxi to Benaulim Beach resort. Saves 45 minutes of transit time compared to airport shuttle.',
+    type: 'local-transport' as const,
+    additionalCost: 1200,
+    currency: 'INR',
+    targetBookingId: 'demo-opt-flight-alt',
+    expectedDepartureTime: '2026-11-12T13:15:00+05:30',
+    expectedArrivalTime: '2026-11-12T14:15:00+05:30',
+    deadline: undefined,
+    deadlineType: 'unknown' as const,
+    isSimulated: false, // User-entered local transport option
+    notes: 'Estimated airport prepaid counter fare. Unknown deadline.',
+  },
+  {
+    id: 'demo-opt-hotel-call',
+    tripId: DEMO_TRIP_ID,
+    title: 'Contact Hotel for Late Check-In Guarantee',
+    description: 'Call Taj Exotica resort reception to request guaranteed room hold for evening arrival.',
+    type: 'contact-provider' as const,
+    additionalCost: 0,
+    currency: 'INR',
+    targetBookingId: 'demo-booking-hotel-1',
+    deadline: '2026-11-12T18:00:00+05:30',
+    deadlineType: 'user-entered' as const,
+    isSimulated: true,
+    notes: 'Check-in cutoff is 23:59.',
+  },
+];
+

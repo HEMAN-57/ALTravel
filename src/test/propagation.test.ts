@@ -342,7 +342,7 @@ describe('Milestone 2: Disruption Propagation Engine', () => {
         type: 'train',
         provider: 'Mystery Rail',
         location: 'Nowhere',
-        startTime: '', // Missing
+        startTime: undefined, // Explicitly optional unscheduled booking
         cost: 100,
         currency: 'INR',
         status: 'confirmed',
@@ -373,6 +373,28 @@ describe('Milestone 2: Disruption Propagation Engine', () => {
       const missingImpact = result.impacts.find((i) => i.bookingId === 'no-time-train');
       expect(missingImpact?.status).toBe('unknown');
       expect(missingImpact?.explanation).toContain('missing or unknown');
+    });
+
+    it('consistently rejects empty-string timestamps in bookings as validation errors', () => {
+      const emptyTimestampBooking: Booking = {
+        ...train1,
+        id: 'empty-time-train',
+        startTime: '', // Empty string must be rejected
+      };
+
+      const badTrip: Trip = {
+        ...baseTrip,
+        bookings: [emptyTimestampBooking],
+      };
+
+      const result = propagateDisruption(badTrip, {
+        type: 'delay',
+        targetBookingId: 'empty-time-train',
+        delayMinutes: 30,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes('Empty strings are not permitted'))).toBe(true);
     });
 
     it('does not mutate original Trip or Booking objects', () => {
@@ -803,10 +825,10 @@ describe('Milestone 2: Disruption Propagation Engine', () => {
       expect(hotelImpact?.explanation).toContain('exceeds the hotel\'s confirmed check-in cutoff');
     });
 
-    it('marks hotel confirmed safe (unaffected) when arrival precedes confirmed cutoff deadline', () => {
+    it('marks hotel unaffected when arrival precedes recorded cutoff deadline without unsupported claims of confirmed safety', () => {
       const hotelWithConfirmedCutoff: Booking = {
         ...hotelBooking,
-        arrivalDeadline: '2026-11-20T20:00:00Z', // 20:00 UTC confirmed cutoff
+        arrivalDeadline: '2026-11-20T20:00:00Z', // 20:00 UTC recorded cutoff
       };
 
       const trip: Trip = {
@@ -824,8 +846,11 @@ describe('Milestone 2: Disruption Propagation Engine', () => {
       expect(result.success).toBe(true);
       const hotelImpact = result.impacts.find((i) => i.bookingId === 'hotel-1');
       expect(hotelImpact?.status).toBe('unaffected');
-      expect(hotelImpact?.cause).toContain('Arrival precedes confirmed check-in cutoff');
-      expect(hotelImpact?.explanation).toContain('The reservation is confirmed safe');
+      expect(hotelImpact?.cause).toContain('Arrival precedes recorded check-in cutoff');
+      expect(hotelImpact?.explanation).toContain('within the recorded check-in cutoff');
+      expect(hotelImpact?.explanation).toContain('not independently verified');
+      // Must NOT claim "confirmed safe"
+      expect(hotelImpact?.explanation).not.toContain('confirmed safe');
     });
 
     it('marks hotel atRisk when cutoff is unverified and upstream feeder is delayed', () => {
