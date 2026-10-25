@@ -36,7 +36,7 @@ export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [isCreateTripOpen, setIsCreateTripOpen] = useState(false);
   const [notification, setNotification] = useState<{
-    variant: 'success' | 'info' | 'warning';
+    variant: 'success' | 'info' | 'warning' | 'destructive';
     message: string;
   } | null>(null);
 
@@ -58,7 +58,10 @@ export const App: React.FC = () => {
     setActiveTripId(id);
   };
 
-  const showNotification = (message: string, variant: 'success' | 'info' | 'warning' = 'success') => {
+  const showNotification = (
+    message: string,
+    variant: 'success' | 'info' | 'warning' | 'destructive' = 'success'
+  ) => {
     setNotification({ message, variant });
     setTimeout(() => {
       setNotification((curr) => (curr?.message === message ? null : curr));
@@ -69,13 +72,23 @@ export const App: React.FC = () => {
   const handleLoadSampleTrip = () => {
     const sample = loadSampleTrip();
     const updatedList = loadTrips();
+    if (!updatedList.some((t) => t.id === sample.id)) {
+      showNotification('Failed to persist sample trip to localStorage.', 'destructive');
+      setTrips(loadTrips());
+      return;
+    }
     setTrips(updatedList);
     handleSelectTrip(sample.id);
     showNotification('Sample trip (Hyderabad → Goa) loaded into localStorage.', 'info');
   };
 
   const handleTripCreated = (newTrip: Trip) => {
-    upsertTrip(newTrip);
+    const success = upsertTrip(newTrip);
+    if (!success) {
+      showNotification(`Failed to save trip "${newTrip.name}". Storage write unsuccessful.`, 'destructive');
+      setTrips(loadTrips());
+      return;
+    }
     const updatedList = loadTrips();
     setTrips(updatedList);
     handleSelectTrip(newTrip.id);
@@ -84,14 +97,24 @@ export const App: React.FC = () => {
   };
 
   const handleUpdateTrip = (updated: Trip) => {
-    upsertTrip(updated);
+    const success = upsertTrip(updated);
+    if (!success) {
+      showNotification(`Failed to update trip "${updated.name}". Changes were not saved.`, 'destructive');
+      setTrips(loadTrips());
+      return;
+    }
     setTrips(loadTrips());
     showNotification('Trip itinerary updated.');
   };
 
   const handleDeleteTrip = (tripId: string) => {
     const tripToDelete = trips.find((t) => t.id === tripId);
-    deleteTrip(tripId);
+    const success = deleteTrip(tripId);
+    if (!success) {
+      showNotification(`Failed to delete trip "${tripToDelete?.name || ''}".`, 'destructive');
+      setTrips(loadTrips());
+      return;
+    }
     const updated = loadTrips();
     setTrips(updated);
 

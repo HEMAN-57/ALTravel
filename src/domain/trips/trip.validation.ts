@@ -47,6 +47,16 @@ export function validateTrip(input: unknown): ValidationResult<Trip> {
     errors.push('Trip end date cannot be earlier than start date.');
   }
 
+  // isSample (must be boolean if provided, defaults to false if absent)
+  let isSample = false;
+  if (candidate.isSample !== undefined) {
+    if (typeof candidate.isSample !== 'boolean') {
+      errors.push('Trip isSample, if specified, must be a boolean (true or false).');
+    } else {
+      isSample = candidate.isSample;
+    }
+  }
+
   // bookings collection
   const validatedBookings: Booking[] = [];
   if (candidate.bookings !== undefined) {
@@ -60,7 +70,13 @@ export function validateTrip(input: unknown): ValidationResult<Trip> {
             `Booking #${index + 1} is invalid: ${itemResult.errors.join('; ')}`
           );
         } else if (itemResult.data) {
-          validatedBookings.push(itemResult.data);
+          if (itemResult.data.tripId !== candidate.id) {
+            errors.push(
+              `Booking #${index + 1} tripId ("${itemResult.data.tripId}") does not match parent trip ID ("${String(candidate.id)}").`
+            );
+          } else {
+            validatedBookings.push(itemResult.data);
+          }
         }
       });
     }
@@ -79,7 +95,7 @@ export function validateTrip(input: unknown): ValidationResult<Trip> {
     startDate: candidate.startDate as string,
     endDate: candidate.endDate as string,
     bookings: validatedBookings,
-    isSample: Boolean(candidate.isSample),
+    isSample,
     description:
       typeof candidate.description === 'string' && candidate.description.trim() !== ''
         ? candidate.description.trim()

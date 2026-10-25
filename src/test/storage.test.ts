@@ -104,4 +104,50 @@ describe('Storage Layer (localStorage persistence)', () => {
     // Unrelated storage must remain intact
     expect(window.localStorage.getItem('unrelated_user_pref')).toBe('dark_theme');
   });
+
+  describe('Storage failure handling', () => {
+    it('returns false from upsertTrip when validation fails', () => {
+      const invalidTrip = { ...sampleTrip1, name: '' };
+      const success = upsertTrip(invalidTrip as Trip);
+      expect(success).toBe(false);
+    });
+
+    it('returns false from upsertTrip when localStorage.setItem throws', () => {
+      const originalSetItem = window.localStorage.setItem;
+      window.localStorage.setItem = () => {
+        throw new Error('QuotaExceededError');
+      };
+
+      const success = upsertTrip(sampleTrip1);
+      expect(success).toBe(false);
+
+      window.localStorage.setItem = originalSetItem;
+    });
+
+    it('returns false from deleteTrip when localStorage.setItem throws', () => {
+      upsertTrip(sampleTrip1);
+
+      const originalSetItem = window.localStorage.setItem;
+      window.localStorage.setItem = () => {
+        throw new Error('StorageDisabledError');
+      };
+
+      const success = deleteTrip('test-trip-1');
+      expect(success).toBe(false);
+
+      window.localStorage.setItem = originalSetItem;
+    });
+
+    it('returns false from saveTrips when localStorage.setItem throws', () => {
+      const originalSetItem = window.localStorage.setItem;
+      window.localStorage.setItem = () => {
+        throw new Error('QuotaExceededError');
+      };
+
+      const success = saveTrips([sampleTrip1]);
+      expect(success).toBe(false);
+
+      window.localStorage.setItem = originalSetItem;
+    });
+  });
 });

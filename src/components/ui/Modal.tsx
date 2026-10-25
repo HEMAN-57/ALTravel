@@ -12,6 +12,9 @@ export interface ModalProps {
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
 }
 
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export const Modal: React.FC<ModalProps> = ({
   isOpen,
   onClose,
@@ -22,24 +25,80 @@ export const Modal: React.FC<ModalProps> = ({
   maxWidth = 'md',
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
+  const triggerElementRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
+    if (!isOpen) return;
+
+    // Capture triggering element before focus moves into the modal
+    triggerElementRef.current = document.activeElement as HTMLElement | null;
+
+    // Lock body scroll
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    // Move focus into dialog when it opens
+    const focusTimer = setTimeout(() => {
+      if (modalRef.current) {
+        const focusable = modalRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+        if (focusable.length > 0) {
+          focusable[0]?.focus();
+        } else {
+          modalRef.current.focus();
+        }
+      }
+    }, 0);
+
+    // Keyboard navigation: Escape to close and focus trapping inside the modal
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && isOpen) {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
         onClose();
+        return;
+      }
+
+      if (event.key === 'Tab') {
+        if (!modalRef.current) return;
+
+        const focusables = Array.from(
+          modalRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+        ).filter((el) => !el.hasAttribute('disabled') && el.getAttribute('aria-hidden') !== 'true');
+
+        if (focusables.length === 0) {
+          event.preventDefault();
+          modalRef.current.focus();
+          return;
+        }
+
+        const firstElement = focusables[0];
+        const lastElement = focusables[focusables.length - 1];
+
+        if (event.shiftKey) {
+          if (document.activeElement === firstElement || !modalRef.current.contains(document.activeElement)) {
+            event.preventDefault();
+            lastElement?.focus();
+          }
+        } else {
+          if (document.activeElement === lastElement || !modalRef.current.contains(document.activeElement)) {
+            event.preventDefault();
+            firstElement?.focus();
+          }
+        }
       }
     };
 
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-      window.addEventListener('keydown', handleKeyDown);
-    } else {
-      document.body.style.overflow = '';
-    }
+    window.addEventListener('keydown', handleKeyDown);
 
     return () => {
-      document.body.style.overflow = '';
+      clearTimeout(focusTimer);
       window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+
+      // Restore focus to triggering element when dialog closes
+      if (triggerElementRef.current && typeof triggerElementRef.current.focus === 'function') {
+        triggerElementRef.current.focus();
+      }
+      triggerElementRef.current = null;
     };
   }, [isOpen, onClose]);
 
@@ -70,8 +129,9 @@ export const Modal: React.FC<ModalProps> = ({
       {/* Modal Dialog Card */}
       <div
         ref={modalRef}
+        tabIndex={-1}
         className={cn(
-          'relative w-full rounded-2xl bg-card border border-border shadow-2xl transition-all z-10 overflow-hidden my-8',
+          'relative w-full rounded-2xl bg-card border border-border shadow-2xl transition-all z-10 overflow-hidden my-8 focus:outline-none',
           maxWidthClass,
           className
         )}

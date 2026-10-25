@@ -148,4 +148,106 @@ describe('Domain Model: Trip Validation', () => {
     expect(result.success).toBe(false);
     expect(result.errors.some((e) => e.includes('Booking #1 is invalid'))).toBe(true);
   });
+
+  it('accepts nested bookings whose tripId matches parent trip id', () => {
+    const validWithBookings = {
+      ...validTripData,
+      bookings: [
+        {
+          id: 'b-valid-1',
+          tripId: 't-1',
+          type: 'flight',
+          provider: 'Air India AI-101',
+          location: 'HYD -> BLR',
+          startTime: '2026-11-15T08:00:00Z',
+          cost: 3200,
+          currency: 'INR',
+          status: 'confirmed',
+        },
+      ],
+    };
+    const result = validateTrip(validWithBookings);
+    expect(result.success).toBe(true);
+    expect(result.data?.bookings).toHaveLength(1);
+    expect(result.data?.bookings[0]?.tripId).toBe('t-1');
+  });
+
+  it('rejects nested bookings whose tripId does not match parent trip id', () => {
+    const mismatchedWithBookings = {
+      ...validTripData,
+      id: 'parent-trip-99',
+      bookings: [
+        {
+          id: 'b-mismatched-1',
+          tripId: 'wrong-trip-id',
+          type: 'hotel',
+          provider: 'Bangalore Luxury Suites',
+          location: 'Bengaluru',
+          startTime: '2026-11-15T14:00:00Z',
+          cost: 6500,
+          currency: 'INR',
+          status: 'confirmed',
+        },
+      ],
+    };
+    const result = validateTrip(mismatchedWithBookings);
+    expect(result.success).toBe(false);
+    expect(
+      result.errors.some((e) =>
+        e.includes('Booking #1 tripId ("wrong-trip-id") does not match parent trip ID ("parent-trip-99")')
+      )
+    ).toBe(true);
+  });
+
+  describe('isSample strict validation', () => {
+    it('accepts actual boolean true for isSample', () => {
+      const result = validateTrip({ ...validTripData, isSample: true });
+      expect(result.success).toBe(true);
+      expect(result.data?.isSample).toBe(true);
+    });
+
+    it('accepts actual boolean false for isSample', () => {
+      const result = validateTrip({ ...validTripData, isSample: false });
+      expect(result.success).toBe(true);
+      expect(result.data?.isSample).toBe(false);
+    });
+
+    it('treats an absent isSample as false', () => {
+      const copy = { ...validTripData };
+      delete copy.isSample;
+      const result = validateTrip(copy);
+      expect(result.success).toBe(true);
+      expect(result.data?.isSample).toBe(false);
+    });
+
+    it('rejects the string "false" for isSample', () => {
+      const result = validateTrip({ ...validTripData, isSample: 'false' });
+      expect(result.success).toBe(false);
+      expect(result.errors.some((e) => e.includes('isSample, if specified, must be a boolean'))).toBe(true);
+    });
+
+    it('rejects the string "true" for isSample', () => {
+      const result = validateTrip({ ...validTripData, isSample: 'true' });
+      expect(result.success).toBe(false);
+      expect(result.errors.some((e) => e.includes('isSample, if specified, must be a boolean'))).toBe(true);
+    });
+
+    it('rejects numeric values for isSample (0 and 1)', () => {
+      const resultZero = validateTrip({ ...validTripData, isSample: 0 });
+      expect(resultZero.success).toBe(false);
+      expect(resultZero.errors.some((e) => e.includes('isSample, if specified, must be a boolean'))).toBe(true);
+
+      const resultOne = validateTrip({ ...validTripData, isSample: 1 });
+      expect(resultOne.success).toBe(false);
+      expect(resultOne.errors.some((e) => e.includes('isSample, if specified, must be a boolean'))).toBe(true);
+    });
+
+    it('rejects object and null values for isSample', () => {
+      const resultObj = validateTrip({ ...validTripData, isSample: {} });
+      expect(resultObj.success).toBe(false);
+
+      const resultNull = validateTrip({ ...validTripData, isSample: null });
+      expect(resultNull.success).toBe(false);
+    });
+  });
 });
