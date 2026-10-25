@@ -44,24 +44,42 @@ export function validateDependencies(
   }
 
   const bookingIds = new Set(bookings.map((b) => b.id));
-  const validatedList: BookingDependency[] = [];
-  const dependencyIdSet = new Set<string>();
+  const structurallyValidList: BookingDependency[] = [];
+
+  // Identify duplicate dependency IDs in advance so detection does not depend on array order
+  const seenIds = new Set<string>();
+  const duplicateIds = new Set<string>();
+  for (const item of dependencies) {
+    if (item && typeof item === 'object') {
+      const candidate = item as Record<string, unknown>;
+      if (typeof candidate.id === 'string' && candidate.id.trim() !== '') {
+        const trimmed = candidate.id.trim();
+        if (seenIds.has(trimmed)) {
+          duplicateIds.add(trimmed);
+        } else {
+          seenIds.add(trimmed);
+        }
+      }
+    }
+  }
 
   dependencies.forEach((item, index) => {
+    const itemErrors: string[] = [];
+
     if (!item || typeof item !== 'object') {
       errors.push(`Dependency #${index + 1} must be a non-null object.`);
       return;
     }
 
     const candidate = item as Record<string, unknown>;
+    const depId = typeof candidate.id === 'string' && candidate.id.trim() !== '' ? candidate.id.trim() : undefined;
+    const depLabel = depId ? `Dependency "${depId}"` : `Dependency #${index + 1}`;
 
     // id
-    if (typeof candidate.id !== 'string' || candidate.id.trim() === '') {
-      errors.push(`Dependency #${index + 1} ID is required and must be a non-empty string.`);
-    } else if (dependencyIdSet.has(candidate.id)) {
-      errors.push(`Duplicate dependency ID "${candidate.id}" detected.`);
-    } else {
-      dependencyIdSet.add(candidate.id);
+    if (!depId) {
+      itemErrors.push(`Dependency #${index + 1} ID is required and must be a non-empty string.`);
+    } else if (duplicateIds.has(depId)) {
+      itemErrors.push(`Duplicate dependency ID "${depId}" detected.`);
     }
 
     // upstreamBookingId
@@ -69,10 +87,10 @@ export function validateDependencies(
       typeof candidate.upstreamBookingId !== 'string' ||
       candidate.upstreamBookingId.trim() === ''
     ) {
-      errors.push(`Dependency #${index + 1} upstreamBookingId is required.`);
+      itemErrors.push(`${depLabel} upstreamBookingId is required.`);
     } else if (!bookingIds.has(candidate.upstreamBookingId)) {
-      errors.push(
-        `Dependency #${index + 1} (${candidate.id || 'unnamed'}) references nonexistent upstream booking ID "${candidate.upstreamBookingId}".`
+      itemErrors.push(
+        `${depLabel} references nonexistent upstream booking ID "${candidate.upstreamBookingId}".`
       );
     }
 
@@ -81,10 +99,10 @@ export function validateDependencies(
       typeof candidate.downstreamBookingId !== 'string' ||
       candidate.downstreamBookingId.trim() === ''
     ) {
-      errors.push(`Dependency #${index + 1} downstreamBookingId is required.`);
+      itemErrors.push(`${depLabel} downstreamBookingId is required.`);
     } else if (!bookingIds.has(candidate.downstreamBookingId)) {
-      errors.push(
-        `Dependency #${index + 1} (${candidate.id || 'unnamed'}) references nonexistent downstream booking ID "${candidate.downstreamBookingId}".`
+      itemErrors.push(
+        `${depLabel} references nonexistent downstream booking ID "${candidate.downstreamBookingId}".`
       );
     }
 
@@ -92,10 +110,11 @@ export function validateDependencies(
     if (
       typeof candidate.upstreamBookingId === 'string' &&
       typeof candidate.downstreamBookingId === 'string' &&
+      candidate.upstreamBookingId.trim() !== '' &&
       candidate.upstreamBookingId === candidate.downstreamBookingId
     ) {
-      errors.push(
-        `Dependency #${index + 1} (${candidate.id || 'unnamed'}) is an invalid self-dependency: booking "${candidate.upstreamBookingId}" cannot depend on itself.`
+      itemErrors.push(
+        `${depLabel} is an invalid self-dependency: booking "${candidate.upstreamBookingId}" cannot depend on itself.`
       );
     }
 
@@ -104,8 +123,8 @@ export function validateDependencies(
       typeof candidate.relationshipType !== 'string' ||
       !VALID_RELATIONSHIP_TYPES.includes(candidate.relationshipType as DependencyRelationshipType)
     ) {
-      errors.push(
-        `Dependency #${index + 1} relationshipType must be one of: ${VALID_RELATIONSHIP_TYPES.join(', ')}.`
+      itemErrors.push(
+        `${depLabel} relationshipType must be one of: ${VALID_RELATIONSHIP_TYPES.join(', ')}.`
       );
     }
 
@@ -114,8 +133,8 @@ export function validateDependencies(
       typeof candidate.commitmentType !== 'string' ||
       !VALID_COMMITMENT_TYPES.includes(candidate.commitmentType as BookingCommitmentType)
     ) {
-      errors.push(
-        `Dependency #${index + 1} commitmentType must be one of: ${VALID_COMMITMENT_TYPES.join(', ')}.`
+      itemErrors.push(
+        `${depLabel} commitmentType must be one of: ${VALID_COMMITMENT_TYPES.join(', ')}.`
       );
     }
 
@@ -127,17 +146,18 @@ export function validateDependencies(
       if (
         typeof candidate.requiredBufferMinutes !== 'number' ||
         Number.isNaN(candidate.requiredBufferMinutes) ||
+        !Number.isFinite(candidate.requiredBufferMinutes) ||
         candidate.requiredBufferMinutes < 0
       ) {
-        errors.push(
-          `Dependency #${index + 1} requiredBufferMinutes, if specified, must be a non-negative number.`
+        itemErrors.push(
+          `${depLabel} requiredBufferMinutes, if specified, must be a non-negative number.`
         );
       }
     }
 
-    if (errors.length === 0) {
-      validatedList.push({
-        id: candidate.id as string,
+    if (itemErrors.length === 0) {
+      structurallyValidList.push({
+        id: depId as string,
         upstreamBookingId: candidate.upstreamBookingId as string,
         downstreamBookingId: candidate.downstreamBookingId as string,
         relationshipType: candidate.relationshipType as DependencyRelationshipType,
@@ -152,15 +172,13 @@ export function validateDependencies(
             : undefined,
       });
     }
+
+    errors.push(...itemErrors);
   });
 
-  if (errors.length > 0) {
-    return { success: false, errors };
-  }
-
-  // Directed cycle detection on the graph
+  // Cycle detection on structurally valid entries
   const adjacency = new Map<string, string[]>();
-  for (const dep of validatedList) {
+  for (const dep of structurallyValidList) {
     const list = adjacency.get(dep.upstreamBookingId) || [];
     list.push(dep.downstreamBookingId);
     adjacency.set(dep.upstreamBookingId, list);
@@ -205,8 +223,14 @@ export function validateDependencies(
     errors.push(
       `Dependency cycle detected involving bookings: ${(detectedCycle as string[]).join(' → ')}.`
     );
-    return { success: false, errors };
   }
 
-  return { success: true, errors: [], data: validatedList };
+  // Deduplicate errors while preserving deterministic first-seen order
+  const uniqueErrors = Array.from(new Set(errors));
+
+  if (uniqueErrors.length > 0) {
+    return { success: false, errors: uniqueErrors };
+  }
+
+  return { success: true, errors: [], data: structurallyValidList };
 }

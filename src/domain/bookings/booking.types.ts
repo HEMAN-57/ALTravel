@@ -13,7 +13,7 @@ export interface Booking {
   type: BookingType;
   provider: string; // e.g. "IndiGo 6E-532", "Taj Exotica Resort & Spa", "ScubaGoa Explorers"
   location: string; // e.g. "HYD -> GOI", "Benaulim Beach, South Goa"
-  startTime: string; // ISO 8601 string
+  startTime?: string; // ISO 8601 string, required for transport bookings, optional when unknown or unscheduled
   endTime?: string; // ISO 8601 string, optional when unknown or instantaneous
   cost: number;
   currency: string; // Standard currency code e.g. "INR", "USD", "EUR"

@@ -82,6 +82,68 @@ describe('Domain Model: Booking Validation', () => {
     expect(result.data?.arrivalDeadline).toBeUndefined();
     expect(result.data?.notes).toBeUndefined();
   });
+
+  it('rejects booking with empty string startTime', () => {
+    const invalid = {
+      ...validBookingData,
+      startTime: '',
+    };
+    const result = validateBooking(invalid);
+    expect(result.success).toBe(false);
+    expect(result.errors.some((e) => e.includes('Start time is required'))).toBe(true);
+  });
+
+  it('rejects booking with malformed startTime timestamp', () => {
+    const invalid = {
+      ...validBookingData,
+      startTime: 'not-a-valid-date',
+    };
+    const result = validateBooking(invalid);
+    expect(result.success).toBe(false);
+    expect(result.errors.some((e) => e.includes('Start time is required and must be a valid date/time string'))).toBe(true);
+  });
+
+  it('rejects booking with malformed arrivalDeadline timestamp', () => {
+    const invalid = {
+      ...validBookingData,
+      arrivalDeadline: 'unparseable-date',
+    };
+    const result = validateBooking(invalid);
+    expect(result.success).toBe(false);
+    expect(result.errors.some((e) => e.includes('Arrival deadline, if provided, must be a valid date/time string'))).toBe(true);
+  });
+
+  it('accepts activity booking with undefined startTime representing unscheduled timing', () => {
+    const unscheduledActivity = {
+      id: 'act-unscheduled',
+      tripId: 't-1',
+      type: 'activity',
+      provider: 'Self-guided Walking Tour',
+      location: 'South Mumbai',
+      cost: 0,
+      currency: 'INR',
+      status: 'confirmed',
+    };
+    const result = validateBooking(unscheduledActivity);
+    expect(result.success).toBe(true);
+    expect(result.data?.startTime).toBeUndefined();
+  });
+
+  it('rejects flight booking when startTime is missing', () => {
+    const missingTransportStart = {
+      id: 'flight-no-start',
+      tripId: 't-1',
+      type: 'flight',
+      provider: 'IndiGo 6E-101',
+      location: 'DEL -> BOM',
+      cost: 4000,
+      currency: 'INR',
+      status: 'confirmed',
+    };
+    const result = validateBooking(missingTransportStart);
+    expect(result.success).toBe(false);
+    expect(result.errors.some((e) => e.includes('Start time is required'))).toBe(true);
+  });
 });
 
 describe('Domain Model: Trip Validation', () => {

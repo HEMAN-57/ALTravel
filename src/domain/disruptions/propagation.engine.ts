@@ -1,5 +1,6 @@
 import { Trip } from '../trips/trip.types';
 import { Booking } from '../bookings/booking.types';
+import { isValidDateString } from '../bookings/booking.validation';
 import { BookingDependency } from './dependency.types';
 import { validateDependencies } from './dependency.validation';
 import {
@@ -10,6 +11,16 @@ import {
 } from './disruption.types';
 import { validateDisruptionInput } from './disruption.validation';
 
+interface BookingTimingState {
+  originalStartTime?: string;
+  originalEndTime?: string;
+  revisedStartTime?: string;
+  revisedEndTime?: string;
+  isDisrupted: boolean;
+  isCancelled: boolean;
+  scheduleChanged: boolean;
+}
+
 /**
  * Deterministic Disruption Propagation Engine
  * 
@@ -17,17 +28,67 @@ import { validateDisruptionInput } from './disruption.validation';
  * - Does not infer dependencies between bookings unless explicitly configured.
  * - Deterministic, timezone-independent UTC millisecond math.
  * - Preserves original Trip and Booking immutability.
+ * - Distinguishes feasible unchanged schedules from missed connections and revised arrivals.
+ * - Handles incomplete and unverified timing honestly without fake fallbacks.
  */
 export function propagateDisruption(
   trip: Trip,
   disruptionInput: unknown,
   explicitDependencies?: BookingDependency[]
 ): DisruptionPropagationResult {
-  // 1. Validate Trip and Bookings
+  // 1. Validate Trip and Bookings structure
   if (!trip || typeof trip !== 'object' || !Array.isArray(trip.bookings)) {
     return {
       success: false,
       errors: ['A valid Trip containing an array of bookings is required.'],
+      impacts: [],
+      summary: createEmptySummary(),
+    };
+  }
+
+  // 1b. Validate bookings timestamps (invalid date strings are validation errors)
+  const tripValidationErrors: string[] = [];
+  for (let i = 0; i < trip.bookings.length; i++) {
+    const booking = trip.bookings[i];
+    if (!booking || typeof booking !== 'object') {
+      tripValidationErrors.push(`Booking #${i + 1} must be a non-null object.`);
+      continue;
+    }
+    const bId = booking.id || `#${i + 1}`;
+
+    // startTime validation (if provided, must be a valid date string or empty indicating missing)
+    if (booking.startTime !== undefined && booking.startTime !== '') {
+      if (typeof booking.startTime !== 'string' || !isValidDateString(booking.startTime)) {
+        tripValidationErrors.push(`Booking "${bId}" has invalid startTime: "${String(booking.startTime)}".`);
+      }
+    }
+
+    // endTime validation (if provided, must be a valid date string)
+    if (booking.endTime !== undefined && booking.endTime !== null && booking.endTime !== '') {
+      if (typeof booking.endTime !== 'string' || !isValidDateString(booking.endTime)) {
+        tripValidationErrors.push(`Booking "${bId}" has invalid endTime: "${String(booking.endTime)}".`);
+      }
+    }
+
+    // arrivalDeadline validation
+    if (booking.arrivalDeadline !== undefined && booking.arrivalDeadline !== null && booking.arrivalDeadline !== '') {
+      if (typeof booking.arrivalDeadline !== 'string' || !isValidDateString(booking.arrivalDeadline)) {
+        tripValidationErrors.push(`Booking "${bId}" has invalid arrivalDeadline: "${String(booking.arrivalDeadline)}".`);
+      }
+    }
+
+    // cancellationDeadline validation
+    if (booking.cancellationDeadline !== undefined && booking.cancellationDeadline !== null && booking.cancellationDeadline !== '') {
+      if (typeof booking.cancellationDeadline !== 'string' || !isValidDateString(booking.cancellationDeadline)) {
+        tripValidationErrors.push(`Booking "${bId}" has invalid cancellationDeadline: "${String(booking.cancellationDeadline)}".`);
+      }
+    }
+  }
+
+  if (tripValidationErrors.length > 0) {
+    return {
+      success: false,
+      errors: tripValidationErrors,
       impacts: [],
       summary: createEmptySummary(),
     };
@@ -82,48 +143,75 @@ export function propagateDisruption(
   // 5. Calculate Target Booking Revised Timing
   const targetRevised = calculateTargetTiming(targetBooking, disruption);
 
-  // Map to hold revised timings: bookingId -> { startTime, endTime, isCancelled }
-  const revisedTimings = new Map<
-    string,
-    { startTime?: string; endTime?: string; isCancelled: boolean }
-  >();
-
-  revisedTimings.set(targetBooking.id, {
-    startTime: targetRevised.revisedStartTime,
-    endTime: targetRevised.revisedEndTime,
-    isCancelled: disruption.type === 'cancellation',
-  });
+  // Map to hold revised timing state: bookingId -> BookingTimingState
+  const revisedTimings = new Map<string, BookingTimingState>();
 
   // Map of impacts: bookingId -> BookingImpact
   const impactsMap = new Map<string, BookingImpact>();
 
-  // Set target booking impact
+  // Set target booking impact and timing state
   if (disruption.type === 'cancellation') {
+    revisedTimings.set(targetBooking.id, {
+      originalStartTime: targetBooking.startTime,
+      originalEndTime: targetBooking.endTime,
+      revisedStartTime: undefined,
+      revisedEndTime: undefined,
+      isDisrupted: true,
+      isCancelled: true,
+      scheduleChanged: true,
+    });
     impactsMap.set(targetBooking.id, {
       bookingId: targetBooking.id,
       status: 'affected',
       cause: 'Direct cancellation.',
       explanation: `Booking "${targetBooking.provider}" was cancelled directly.`,
+      originalStartTime: targetBooking.startTime,
+      originalEndTime: targetBooking.endTime,
       revisedStartTime: undefined,
       revisedEndTime: undefined,
+      scheduleChanged: true,
     });
   } else if (disruption.delayMinutes === 0) {
+    revisedTimings.set(targetBooking.id, {
+      originalStartTime: targetBooking.startTime,
+      originalEndTime: targetBooking.endTime,
+      revisedStartTime: targetBooking.startTime,
+      revisedEndTime: targetBooking.endTime,
+      isDisrupted: false,
+      isCancelled: false,
+      scheduleChanged: false,
+    });
     impactsMap.set(targetBooking.id, {
       bookingId: targetBooking.id,
       status: 'unaffected',
       cause: 'Zero-minute delay.',
       explanation: `Booking "${targetBooking.provider}" has a zero-minute delay; schedule remains intact.`,
-      revisedStartTime: targetRevised.revisedStartTime,
-      revisedEndTime: targetRevised.revisedEndTime,
+      originalStartTime: targetBooking.startTime,
+      originalEndTime: targetBooking.endTime,
+      revisedStartTime: targetBooking.startTime,
+      revisedEndTime: targetBooking.endTime,
+      scheduleChanged: false,
     });
   } else {
+    revisedTimings.set(targetBooking.id, {
+      originalStartTime: targetBooking.startTime,
+      originalEndTime: targetBooking.endTime,
+      revisedStartTime: targetRevised.revisedStartTime,
+      revisedEndTime: targetRevised.revisedEndTime,
+      isDisrupted: false,
+      isCancelled: false,
+      scheduleChanged: true,
+    });
     impactsMap.set(targetBooking.id, {
       bookingId: targetBooking.id,
       status: 'affected',
       cause: `Delayed by ${disruption.delayMinutes} minutes.`,
       explanation: `Booking "${targetBooking.provider}" is delayed by ${disruption.delayMinutes} minutes.`,
+      originalStartTime: targetBooking.startTime,
+      originalEndTime: targetBooking.endTime,
       revisedStartTime: targetRevised.revisedStartTime,
       revisedEndTime: targetRevised.revisedEndTime,
+      scheduleChanged: true,
     });
   }
 
@@ -148,7 +236,7 @@ export function propagateDisruption(
       reachableFromDisruption.add(downstreamBooking.id);
 
       // Evaluate the downstream booking's impact based on current booking state
-      const impact = evaluateDependencyImpact(
+      const { impact, timingState } = evaluateDependencyImpact(
         currentBooking,
         currentTiming,
         currentImpact?.status || 'unaffected',
@@ -156,18 +244,30 @@ export function propagateDisruption(
         dep
       );
 
-      // If already recorded with an 'affected' status, preserve the most severe impact
+      // If already recorded with an impact status, preserve the most severe impact
       const existingImpact = impactsMap.get(downstreamBooking.id);
       if (!existingImpact || severityRank(impact.status) > severityRank(existingImpact.status)) {
         impactsMap.set(downstreamBooking.id, impact);
       }
 
-      // If downstream is delayed or affected, update revised timing
-      if (!revisedTimings.has(downstreamBooking.id)) {
+      // Update timing state for downstream booking
+      const existingTiming = revisedTimings.get(downstreamBooking.id);
+      if (!existingTiming) {
+        revisedTimings.set(downstreamBooking.id, timingState);
+      } else {
+        // If downstream was marked disrupted by any upstream dependency, preserve the disrupted state
+        const isDisrupted = existingTiming.isDisrupted || timingState.isDisrupted;
+        const isCancelled = existingTiming.isCancelled || timingState.isCancelled;
+        const scheduleChanged = existingTiming.scheduleChanged || timingState.scheduleChanged;
+
         revisedTimings.set(downstreamBooking.id, {
-          startTime: impact.revisedStartTime || downstreamBooking.startTime,
-          endTime: impact.revisedEndTime || downstreamBooking.endTime,
-          isCancelled: impact.status === 'affected' && currentTiming?.isCancelled === true,
+          originalStartTime: downstreamBooking.startTime,
+          originalEndTime: downstreamBooking.endTime,
+          revisedStartTime: isDisrupted ? undefined : (timingState.revisedStartTime ?? existingTiming.revisedStartTime),
+          revisedEndTime: isDisrupted ? undefined : (timingState.revisedEndTime ?? existingTiming.revisedEndTime),
+          isDisrupted,
+          isCancelled,
+          scheduleChanged,
         });
       }
 
@@ -184,6 +284,11 @@ export function propagateDisruption(
         status: 'unaffected',
         cause: 'No dependency path.',
         explanation: `Booking "${booking.provider}" has no explicit dependency path from disrupted booking "${targetBooking.provider}".`,
+        originalStartTime: booking.startTime,
+        originalEndTime: booking.endTime,
+        revisedStartTime: booking.startTime,
+        revisedEndTime: booking.endTime,
+        scheduleChanged: false,
       });
     }
   }
@@ -195,6 +300,11 @@ export function propagateDisruption(
       status: 'unaffected',
       cause: 'No dependency path.',
       explanation: 'No dependency path from disrupted booking.',
+      originalStartTime: b.startTime,
+      originalEndTime: b.endTime,
+      revisedStartTime: b.startTime,
+      revisedEndTime: b.endTime,
+      scheduleChanged: false,
     }
   );
 
@@ -215,7 +325,7 @@ export function propagateDisruption(
       bookingId: targetBooking.id,
       type: disruption.type,
       delayMinutes: disruption.type === 'delay' ? disruption.delayMinutes : undefined,
-      originalStartTime: targetBooking.startTime,
+      originalStartTime: targetBooking.startTime || '',
       originalEndTime: targetBooking.endTime,
       revisedStartTime: targetRevised.revisedStartTime,
       revisedEndTime: targetRevised.revisedEndTime,
@@ -227,6 +337,7 @@ export function propagateDisruption(
 
 /**
  * Calculates revised start and end time for the directly disrupted booking.
+ * Does not invent an arrival time if none is specified or derivable.
  */
 function calculateTargetTiming(
   booking: Booking,
@@ -237,14 +348,15 @@ function calculateTargetTiming(
   }
 
   const delayMs = disruption.delayMinutes * 60000;
-  const originalStartMs = Date.parse(booking.startTime);
-
-  const revisedStartTime = Number.isNaN(originalStartMs)
-    ? undefined
-    : new Date(originalStartMs + delayMs).toISOString();
+  let revisedStartTime: string | undefined = undefined;
+  if (booking.startTime) {
+    const originalStartMs = Date.parse(booking.startTime);
+    if (!Number.isNaN(originalStartMs)) {
+      revisedStartTime = new Date(originalStartMs + delayMs).toISOString();
+    }
+  }
 
   let revisedEndTime: string | undefined = undefined;
-
   if (disruption.revisedArrivalTime) {
     revisedEndTime = disruption.revisedArrivalTime;
   } else if (booking.endTime) {
@@ -252,27 +364,26 @@ function calculateTargetTiming(
     if (!Number.isNaN(originalEndMs)) {
       revisedEndTime = new Date(originalEndMs + delayMs).toISOString();
     }
-  } else {
-    // If no endTime was specified, revisedEndTime is equivalent to delayed startTime
-    revisedEndTime = revisedStartTime;
   }
+  // When no endTime is present and no revisedArrivalTime was supplied,
+  // revisedEndTime remains undefined (honest incomplete timing).
 
   return { revisedStartTime, revisedEndTime };
 }
 
 /**
- * Evaluates the impact on a downstream booking given an upstream booking state and explicit dependency.
+ * Evaluates the impact and timing state on a downstream booking given an upstream booking state and explicit dependency.
  */
 function evaluateDependencyImpact(
   upstream: Booking,
-  upstreamTiming: { startTime?: string; endTime?: string; isCancelled: boolean } | undefined,
-  upstreamImpactStatus: ImpactStatus,
+  upstreamTiming: BookingTimingState | undefined,
+  _upstreamImpactStatus: ImpactStatus,
   downstream: Booking,
   dep: BookingDependency
-): BookingImpact {
-  // Case A: Upstream was cancelled or affected through an upstream cancellation
-  if (upstreamTiming?.isCancelled || upstreamImpactStatus === 'affected' && !upstreamTiming?.endTime) {
-    // Hotel Uncertainty Rule (Scenario E):
+): { impact: BookingImpact; timingState: BookingTimingState } {
+  // Case A: Upstream was cancelled
+  if (upstreamTiming?.isCancelled) {
+    // Hotel Uncertainty Rule:
     // A hotel booking with flexible check-in and no missed arrival deadline is not automatically lost or cancelled.
     if (
       downstream.type === 'hotel' ||
@@ -280,133 +391,396 @@ function evaluateDependencyImpact(
       dep.commitmentType === 'flexible'
     ) {
       return {
+        impact: {
+          bookingId: downstream.id,
+          status: 'atRisk',
+          cause: `Upstream feeder "${upstream.provider}" was cancelled.`,
+          explanation: `Upstream transport was cancelled. Hotel check-in is delayed, but no strict cutoff establishes that the hotel booking is lost. Hotel is not automatically lost or non-refundable; traveller should contact property.`,
+          originalStartTime: downstream.startTime,
+          originalEndTime: downstream.endTime,
+          revisedStartTime: undefined,
+          revisedEndTime: undefined,
+          scheduleChanged: true,
+          evidence: {
+            upstreamBookingId: upstream.id,
+            downstreamBookingId: downstream.id,
+            relationshipType: dep.relationshipType,
+            commitmentType: dep.commitmentType,
+          },
+        },
+        timingState: {
+          originalStartTime: downstream.startTime,
+          originalEndTime: downstream.endTime,
+          revisedStartTime: undefined,
+          revisedEndTime: undefined,
+          isDisrupted: true,
+          isCancelled: false,
+          scheduleChanged: true,
+        },
+      };
+    }
+
+    // Default for hard commitments / transport: Connection missed / cannot board
+    return {
+      impact: {
         bookingId: downstream.id,
-        status: 'atRisk',
-        cause: `Upstream feeder "${upstream.provider}" was cancelled.`,
-        explanation: `Upstream transport was cancelled. Hotel check-in is delayed, but no strict cutoff establishes that the hotel booking is lost. Hotel is not automatically lost or non-refundable; traveller should contact property.`,
+        status: 'affected',
+        cause: `Upstream connection "${upstream.provider}" was cancelled.`,
+        explanation: `Cannot board or attend "${downstream.provider}" because preceding travel leg "${upstream.provider}" was cancelled.`,
+        originalStartTime: downstream.startTime,
+        originalEndTime: downstream.endTime,
+        revisedStartTime: undefined,
+        revisedEndTime: undefined,
+        scheduleChanged: true,
         evidence: {
           upstreamBookingId: upstream.id,
           downstreamBookingId: downstream.id,
           relationshipType: dep.relationshipType,
           commitmentType: dep.commitmentType,
         },
+      },
+      timingState: {
+        originalStartTime: downstream.startTime,
+        originalEndTime: downstream.endTime,
+        revisedStartTime: undefined,
+        revisedEndTime: undefined,
+        isDisrupted: true,
+        isCancelled: true,
+        scheduleChanged: true,
+      },
+    };
+  }
+
+  // Case B: Upstream connection was missed / disrupted
+  if (upstreamTiming?.isDisrupted) {
+    if (
+      downstream.type === 'hotel' ||
+      dep.relationshipType === 'arrival-to-lodging' ||
+      dep.commitmentType === 'flexible'
+    ) {
+      return {
+        impact: {
+          bookingId: downstream.id,
+          status: 'atRisk',
+          cause: `Preceding connection was missed.`,
+          explanation: `Preceding travel connection "${upstream.provider}" was missed. Check-in is at risk, but no strict cutoff establishes that the hotel booking is lost. Hotel is not automatically lost or non-refundable; traveller should contact property.`,
+          originalStartTime: downstream.startTime,
+          originalEndTime: downstream.endTime,
+          revisedStartTime: undefined,
+          revisedEndTime: undefined,
+          scheduleChanged: true,
+          evidence: {
+            upstreamBookingId: upstream.id,
+            downstreamBookingId: downstream.id,
+            relationshipType: dep.relationshipType,
+            commitmentType: dep.commitmentType,
+          },
+        },
+        timingState: {
+          originalStartTime: downstream.startTime,
+          originalEndTime: downstream.endTime,
+          revisedStartTime: undefined,
+          revisedEndTime: undefined,
+          isDisrupted: true,
+          isCancelled: false,
+          scheduleChanged: true,
+        },
       };
     }
 
-    // Default for hard commitments (Scenario C): Connection missed / cannot board
     return {
-      bookingId: downstream.id,
-      status: 'affected',
-      cause: `Upstream connection "${upstream.provider}" was cancelled.`,
-      explanation: `Cannot board or attend "${downstream.provider}" because preceding travel leg "${upstream.provider}" was cancelled.`,
-      evidence: {
-        upstreamBookingId: upstream.id,
-        downstreamBookingId: downstream.id,
-        relationshipType: dep.relationshipType,
-        commitmentType: dep.commitmentType,
+      impact: {
+        bookingId: downstream.id,
+        status: 'affected',
+        cause: `Preceding connection was missed.`,
+        explanation: `Cannot board or attend "${downstream.provider}" because preceding travel connection "${upstream.provider}" was missed due to upstream disruption.`,
+        originalStartTime: downstream.startTime,
+        originalEndTime: downstream.endTime,
+        revisedStartTime: undefined,
+        revisedEndTime: undefined,
+        scheduleChanged: true,
+        evidence: {
+          upstreamBookingId: upstream.id,
+          downstreamBookingId: downstream.id,
+          relationshipType: dep.relationshipType,
+          commitmentType: dep.commitmentType,
+        },
+      },
+      timingState: {
+        originalStartTime: downstream.startTime,
+        originalEndTime: downstream.endTime,
+        revisedStartTime: undefined,
+        revisedEndTime: undefined,
+        isDisrupted: true,
+        isCancelled: false,
+        scheduleChanged: true,
       },
     };
   }
 
-  // Case B: Upstream was delayed
-  const upstreamArrivalStr = upstreamTiming?.endTime || upstreamTiming?.startTime;
+  // Case C: Incomplete upstream arrival timing
+  // We strictly require an arrival time (revised or scheduled). No fake fallback to startTime.
+  const upstreamArrivalStr = upstreamTiming?.revisedEndTime ?? upstream.endTime;
   if (!upstreamArrivalStr) {
     return {
-      bookingId: downstream.id,
-      status: 'unknown',
-      cause: 'Incomplete upstream schedule.',
-      explanation: `Cannot determine connection impact because upstream booking "${upstream.provider}" timing is missing or unknown.`,
-      evidence: {
-        upstreamBookingId: upstream.id,
-        downstreamBookingId: downstream.id,
-        missingInformation: ['upstream arrival time'],
+      impact: {
+        bookingId: downstream.id,
+        status: 'unknown',
+        cause: 'Incomplete upstream schedule.',
+        explanation: `Cannot determine connection impact because upstream booking "${upstream.provider}" arrival time is missing or unknown.`,
+        originalStartTime: downstream.startTime,
+        originalEndTime: downstream.endTime,
+        revisedStartTime: undefined,
+        revisedEndTime: undefined,
+        scheduleChanged: false,
+        evidence: {
+          upstreamBookingId: upstream.id,
+          downstreamBookingId: downstream.id,
+          missingInformation: ['upstream arrival time'],
+        },
+      },
+      timingState: {
+        originalStartTime: downstream.startTime,
+        originalEndTime: downstream.endTime,
+        revisedStartTime: undefined,
+        revisedEndTime: undefined,
+        isDisrupted: false,
+        isCancelled: false,
+        scheduleChanged: false,
       },
     };
   }
 
+  // Case D: Incomplete downstream start timing
   const downstreamStartStr = downstream.startTime;
   if (!downstreamStartStr) {
     return {
-      bookingId: downstream.id,
-      status: 'unknown',
-      cause: 'Incomplete downstream schedule.',
-      explanation: `Cannot determine connection impact because downstream booking "${downstream.provider}" start time is missing or unknown.`,
-      evidence: {
-        upstreamBookingId: upstream.id,
-        downstreamBookingId: downstream.id,
-        missingInformation: ['downstream start time'],
+      impact: {
+        bookingId: downstream.id,
+        status: 'unknown',
+        cause: 'Incomplete downstream schedule.',
+        explanation: `Cannot determine connection impact because downstream booking "${downstream.provider}" start time is missing or unknown.`,
+        originalStartTime: undefined,
+        originalEndTime: downstream.endTime,
+        revisedStartTime: undefined,
+        revisedEndTime: undefined,
+        scheduleChanged: false,
+        evidence: {
+          upstreamBookingId: upstream.id,
+          downstreamBookingId: downstream.id,
+          missingInformation: ['downstream start time'],
+        },
+      },
+      timingState: {
+        originalStartTime: undefined,
+        originalEndTime: downstream.endTime,
+        revisedStartTime: undefined,
+        revisedEndTime: undefined,
+        isDisrupted: false,
+        isCancelled: false,
+        scheduleChanged: false,
       },
     };
   }
 
   const upstreamArrivalMs = Date.parse(upstreamArrivalStr);
   const downstreamStartMs = Date.parse(downstreamStartStr);
+  const availableTransferMinutes = Math.floor((downstreamStartMs - upstreamArrivalMs) / 60000);
 
-  if (Number.isNaN(upstreamArrivalMs) || Number.isNaN(downstreamStartMs)) {
-    return {
-      bookingId: downstream.id,
-      status: 'unknown',
-      cause: 'Invalid timestamp.',
-      explanation: 'One or more timestamps could not be parsed as valid dates.',
-      evidence: {
-        upstreamBookingId: upstream.id,
-        downstreamBookingId: downstream.id,
-      },
-    };
-  }
-
-  const requiredBufferMinutes = dep.requiredBufferMinutes ?? 0;
-  const availableTransferMinutes = Math.floor(
-    (downstreamStartMs - upstreamArrivalMs) / 60000
-  );
-  const bufferDeficitMinutes = Math.max(0, requiredBufferMinutes - availableTransferMinutes);
-
-  // Hotel Uncertainty Check (Scenario E)
+  // Case E: Hotel / Lodging Uncertainty-Aware Evaluation
   if (downstream.type === 'hotel' || dep.relationshipType === 'arrival-to-lodging') {
     if (downstream.arrivalDeadline) {
       const deadlineMs = Date.parse(downstream.arrivalDeadline);
       if (!Number.isNaN(deadlineMs) && upstreamArrivalMs > deadlineMs) {
         return {
+          impact: {
+            bookingId: downstream.id,
+            status: 'affected',
+            cause: 'Exceeded hotel late check-in cutoff deadline.',
+            explanation: `Revised arrival (${upstreamArrivalStr}) exceeds the hotel's confirmed check-in cutoff (${downstream.arrivalDeadline}).`,
+            originalStartTime: downstream.startTime,
+            originalEndTime: downstream.endTime,
+            revisedStartTime: upstreamArrivalStr,
+            revisedEndTime: downstream.endTime,
+            scheduleChanged: true,
+            evidence: {
+              upstreamBookingId: upstream.id,
+              upstreamRevisedArrival: upstreamArrivalStr,
+              downstreamBookingId: downstream.id,
+              downstreamArrivalDeadline: downstream.arrivalDeadline,
+              relationshipType: dep.relationshipType,
+              commitmentType: dep.commitmentType,
+            },
+          },
+          timingState: {
+            originalStartTime: downstream.startTime,
+            originalEndTime: downstream.endTime,
+            revisedStartTime: upstreamArrivalStr,
+            revisedEndTime: downstream.endTime,
+            isDisrupted: true,
+            isCancelled: false,
+            scheduleChanged: true,
+          },
+        };
+      }
+
+      // Arrival is confirmed safe within the verified deadline
+      return {
+        impact: {
           bookingId: downstream.id,
-          status: 'affected',
-          cause: 'Exceeded hotel late check-in cutoff deadline.',
-          explanation: `Revised arrival (${upstreamArrivalStr}) is later than the hotel's guaranteed late check-in cutoff (${downstream.arrivalDeadline}).`,
+          status: 'unaffected',
+          cause: 'Arrival precedes confirmed check-in cutoff.',
+          explanation: `The reservation is confirmed safe: revised arrival (${upstreamArrivalStr}) is within the hotel's confirmed check-in cutoff (${downstream.arrivalDeadline}).`,
+          originalStartTime: downstream.startTime,
+          originalEndTime: downstream.endTime,
+          revisedStartTime: downstream.startTime,
+          revisedEndTime: downstream.endTime,
+          scheduleChanged: false,
           evidence: {
             upstreamBookingId: upstream.id,
             upstreamRevisedArrival: upstreamArrivalStr,
             downstreamBookingId: downstream.id,
             downstreamArrivalDeadline: downstream.arrivalDeadline,
             relationshipType: dep.relationshipType,
+            commitmentType: dep.commitmentType,
           },
-        };
-      }
+        },
+        timingState: {
+          originalStartTime: downstream.startTime,
+          originalEndTime: downstream.endTime,
+          revisedStartTime: downstream.startTime,
+          revisedEndTime: downstream.endTime,
+          isDisrupted: false,
+          isCancelled: false,
+          scheduleChanged: false,
+        },
+      };
     }
 
-    // Flexible hotel check-in
+    // Cutoff is unverified / absent
+    // Determine whether upstream arrival is actually delayed compared to scheduled arrival
+    const scheduledArrivalMs = upstream.endTime
+      ? Date.parse(upstream.endTime)
+      : (upstream.startTime ? Date.parse(upstream.startTime) : upstreamArrivalMs);
+    const isDelayedArrival = upstreamArrivalMs > scheduledArrivalMs;
+
+    if (isDelayedArrival) {
+      return {
+        impact: {
+          bookingId: downstream.id,
+          status: 'atRisk',
+          cause: 'Unverified check-in cutoff.',
+          explanation: `There is no evidence that the reservation is lost, but the property's check-in cutoff is unverified. Delayed arrival may impact check-in; traveller should contact property to confirm late arrival.`,
+          originalStartTime: downstream.startTime,
+          originalEndTime: downstream.endTime,
+          revisedStartTime: upstreamArrivalStr,
+          revisedEndTime: downstream.endTime,
+          scheduleChanged: true,
+          evidence: {
+            upstreamBookingId: upstream.id,
+            upstreamRevisedArrival: upstreamArrivalStr,
+            downstreamBookingId: downstream.id,
+            downstreamScheduledStart: downstreamStartStr,
+            relationshipType: dep.relationshipType,
+            commitmentType: dep.commitmentType,
+            missingInformation: ['hotel arrival deadline / check-in cutoff'],
+          },
+        },
+        timingState: {
+          originalStartTime: downstream.startTime,
+          originalEndTime: downstream.endTime,
+          revisedStartTime: upstreamArrivalStr,
+          revisedEndTime: downstream.endTime,
+          isDisrupted: false,
+          isCancelled: false,
+          scheduleChanged: true,
+        },
+      };
+    }
+
+    // Scheduled on-time arrival without delay
     return {
-      bookingId: downstream.id,
-      status: 'unaffected',
-      cause: 'Flexible check-in window.',
-      explanation: `Hotel check-in is flexible; delayed arrival does not cause room forfeiture or cancellation.`,
-      evidence: {
-        upstreamBookingId: upstream.id,
-        upstreamRevisedArrival: upstreamArrivalStr,
-        downstreamBookingId: downstream.id,
-        downstreamScheduledStart: downstreamStartStr,
-        relationshipType: dep.relationshipType,
-        commitmentType: dep.commitmentType,
+      impact: {
+        bookingId: downstream.id,
+        status: 'unaffected',
+        cause: dep.commitmentType === 'flexible' ? 'Flexible check-in window.' : 'Scheduled on-time arrival.',
+        explanation: dep.commitmentType === 'flexible'
+          ? `The reservation is confirmed safe: hotel check-in arrangement is flexible and arrival remains on schedule.`
+          : `The reservation is confirmed safe: arrival is on schedule at the original planned time.`,
+        originalStartTime: downstream.startTime,
+        originalEndTime: downstream.endTime,
+        revisedStartTime: downstream.startTime,
+        revisedEndTime: downstream.endTime,
+        scheduleChanged: false,
+        evidence: {
+          upstreamBookingId: upstream.id,
+          upstreamRevisedArrival: upstreamArrivalStr,
+          downstreamBookingId: downstream.id,
+          downstreamScheduledStart: downstreamStartStr,
+          relationshipType: dep.relationshipType,
+          commitmentType: dep.commitmentType,
+        },
+      },
+      timingState: {
+        originalStartTime: downstream.startTime,
+        originalEndTime: downstream.endTime,
+        revisedStartTime: downstream.startTime,
+        revisedEndTime: downstream.endTime,
+        isDisrupted: false,
+        isCancelled: false,
+        scheduleChanged: false,
       },
     };
   }
 
-  // Transport Connections & Activities (Scenarios A & B)
+  // Case F: Transport Connections & Activities
+  // If buffer is unspecified
   if (dep.requiredBufferMinutes === undefined) {
     if (availableTransferMinutes < 0) {
       return {
+        impact: {
+          bookingId: downstream.id,
+          status: 'affected',
+          cause: 'Arrival occurs after departure.',
+          explanation: `Upstream revised arrival (${upstreamArrivalStr}) occurs after downstream scheduled start (${downstreamStartStr}).`,
+          originalStartTime: downstream.startTime,
+          originalEndTime: downstream.endTime,
+          revisedStartTime: undefined,
+          revisedEndTime: undefined,
+          scheduleChanged: true,
+          evidence: {
+            upstreamBookingId: upstream.id,
+            upstreamRevisedArrival: upstreamArrivalStr,
+            downstreamBookingId: downstream.id,
+            downstreamScheduledStart: downstreamStartStr,
+            availableTransferMinutes,
+            relationshipType: dep.relationshipType,
+            commitmentType: dep.commitmentType,
+          },
+        },
+        timingState: {
+          originalStartTime: downstream.startTime,
+          originalEndTime: downstream.endTime,
+          revisedStartTime: undefined,
+          revisedEndTime: undefined,
+          isDisrupted: true,
+          isCancelled: false,
+          scheduleChanged: true,
+        },
+      };
+    }
+
+    return {
+      impact: {
         bookingId: downstream.id,
-        status: 'affected',
-        cause: 'Arrival occurs after departure.',
-        explanation: `Upstream revised arrival (${upstreamArrivalStr}) occurs after downstream scheduled start (${downstreamStartStr}).`,
+        status: 'atRisk',
+        cause: 'Unspecified transfer buffer.',
+        explanation: `Transfer buffer was not specified. Arrival precedes departure by ${availableTransferMinutes} minutes, but feasibility is at risk without a confirmed transfer buffer.`,
+        originalStartTime: downstream.startTime,
+        originalEndTime: downstream.endTime,
+        revisedStartTime: downstream.startTime,
+        revisedEndTime: downstream.endTime,
+        scheduleChanged: false,
         evidence: {
           upstreamBookingId: upstream.id,
           upstreamRevisedArrival: upstreamArrivalStr,
@@ -414,64 +788,100 @@ function evaluateDependencyImpact(
           downstreamScheduledStart: downstreamStartStr,
           availableTransferMinutes,
           relationshipType: dep.relationshipType,
+          commitmentType: dep.commitmentType,
+          missingInformation: ['required transfer buffer'],
         },
-      };
-    }
-    return {
-      bookingId: downstream.id,
-      status: 'atRisk',
-      cause: 'Unspecified transfer buffer.',
-      explanation: `Transfer buffer was not specified. Arrival precedes departure by ${availableTransferMinutes} minutes, but feasibility is at risk without a confirmed transfer buffer.`,
-      evidence: {
-        upstreamBookingId: upstream.id,
-        upstreamRevisedArrival: upstreamArrivalStr,
-        downstreamBookingId: downstream.id,
-        downstreamScheduledStart: downstreamStartStr,
-        availableTransferMinutes,
-        relationshipType: dep.relationshipType,
+      },
+      timingState: {
+        originalStartTime: downstream.startTime,
+        originalEndTime: downstream.endTime,
+        revisedStartTime: downstream.startTime,
+        revisedEndTime: downstream.endTime,
+        isDisrupted: false,
+        isCancelled: false,
+        scheduleChanged: false,
       },
     };
   }
 
-  // Check buffer satisfaction
+  // If buffer is specified
+  const requiredBufferMinutes = dep.requiredBufferMinutes;
+  const bufferDeficitMinutes = Math.max(0, requiredBufferMinutes - availableTransferMinutes);
+
   if (availableTransferMinutes >= requiredBufferMinutes) {
-    // Scenario A: Connection survives
+    // Connection survives (Scenario A):
+    // For fixed scheduled transport (flight / train) or fixed activity, scheduled timing remains intact.
+    // It is marked unaffected and its schedule is NOT shifted.
     return {
+      impact: {
+        bookingId: downstream.id,
+        status: 'unaffected',
+        cause: 'Transfer window is sufficient.',
+        explanation: `Connection remains feasible. Revised arrival leaves ${availableTransferMinutes} minutes for transfer, which satisfies the required ${requiredBufferMinutes}-minute buffer.`,
+        originalStartTime: downstream.startTime,
+        originalEndTime: downstream.endTime,
+        revisedStartTime: downstream.startTime,
+        revisedEndTime: downstream.endTime,
+        scheduleChanged: false,
+        evidence: {
+          upstreamBookingId: upstream.id,
+          upstreamScheduledArrival: upstream.endTime,
+          upstreamRevisedArrival: upstreamArrivalStr,
+          downstreamBookingId: downstream.id,
+          downstreamScheduledStart: downstreamStartStr,
+          requiredBufferMinutes,
+          availableTransferMinutes,
+          relationshipType: dep.relationshipType,
+          commitmentType: dep.commitmentType,
+        },
+      },
+      timingState: {
+        originalStartTime: downstream.startTime,
+        originalEndTime: downstream.endTime,
+        revisedStartTime: downstream.startTime,
+        revisedEndTime: downstream.endTime,
+        isDisrupted: false,
+        isCancelled: false,
+        scheduleChanged: false,
+      },
+    };
+  }
+
+  // Connection missed (Scenario B):
+  // The transfer buffer was violated. Passenger misses the downstream connection.
+  // Revised times are undefined because the passenger cannot board this booking.
+  return {
+    impact: {
       bookingId: downstream.id,
-      status: 'unaffected',
-      cause: 'Transfer window is sufficient.',
-      explanation: `Connection remains feasible. Revised arrival leaves ${availableTransferMinutes} minutes for transfer, which satisfies the required ${requiredBufferMinutes}-minute buffer.`,
+      status: 'affected',
+      cause: 'Transfer buffer violated.',
+      explanation: `Connection missed. Revised arrival leaves only ${availableTransferMinutes} minutes, which is insufficient for the required ${requiredBufferMinutes}-minute transfer buffer (deficit of ${bufferDeficitMinutes} minutes).`,
+      originalStartTime: downstream.startTime,
+      originalEndTime: downstream.endTime,
+      revisedStartTime: undefined,
+      revisedEndTime: undefined,
+      scheduleChanged: true,
       evidence: {
         upstreamBookingId: upstream.id,
-        upstreamScheduledArrival: upstream.endTime || upstream.startTime,
+        upstreamScheduledArrival: upstream.endTime,
         upstreamRevisedArrival: upstreamArrivalStr,
         downstreamBookingId: downstream.id,
         downstreamScheduledStart: downstreamStartStr,
         requiredBufferMinutes,
         availableTransferMinutes,
+        bufferDeficitMinutes,
         relationshipType: dep.relationshipType,
         commitmentType: dep.commitmentType,
       },
-    };
-  }
-
-  // Scenario B: Connection missed
-  return {
-    bookingId: downstream.id,
-    status: 'affected',
-    cause: 'Transfer buffer violated.',
-    explanation: `Connection missed. Revised arrival leaves only ${availableTransferMinutes} minutes, which is insufficient for the required ${requiredBufferMinutes}-minute transfer buffer (deficit of ${bufferDeficitMinutes} minutes).`,
-    evidence: {
-      upstreamBookingId: upstream.id,
-      upstreamScheduledArrival: upstream.endTime || upstream.startTime,
-      upstreamRevisedArrival: upstreamArrivalStr,
-      downstreamBookingId: downstream.id,
-      downstreamScheduledStart: downstreamStartStr,
-      requiredBufferMinutes,
-      availableTransferMinutes,
-      bufferDeficitMinutes,
-      relationshipType: dep.relationshipType,
-      commitmentType: dep.commitmentType,
+    },
+    timingState: {
+      originalStartTime: downstream.startTime,
+      originalEndTime: downstream.endTime,
+      revisedStartTime: undefined,
+      revisedEndTime: undefined,
+      isDisrupted: true,
+      isCancelled: false,
+      scheduleChanged: true,
     },
   };
 }

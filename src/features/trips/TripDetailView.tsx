@@ -38,7 +38,7 @@ export const TripDetailView: React.FC<TripDetailViewProps> = ({
 
   // Chronologically sort bookings by start time
   const sortedBookings = [...trip.bookings].sort(
-    (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+    (a, b) => (a.startTime ? new Date(a.startTime).getTime() : 0) - (b.startTime ? new Date(b.startTime).getTime() : 0)
   );
 
   const totalCost = trip.bookings.reduce((sum, b) => sum + (b.cost || 0), 0);

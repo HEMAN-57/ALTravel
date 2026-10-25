@@ -47,8 +47,11 @@ export interface BookingImpact {
   cause: string;
   explanation: string;
   evidence?: DisruptionEvidence;
+  originalStartTime?: string;
+  originalEndTime?: string;
   revisedStartTime?: string;
   revisedEndTime?: string;
+  scheduleChanged?: boolean;
 }
 
 export interface DisruptionPropagationResult {

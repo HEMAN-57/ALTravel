@@ -53,12 +53,15 @@ export function validateBooking(input: unknown): ValidationResult<Booking> {
   }
 
   // startTime
-  if (typeof candidate.startTime !== 'string' || !isValidDateString(candidate.startTime)) {
-    errors.push('Start time is required and must be a valid date/time string.');
+  const isTransport = candidate.type === 'flight' || candidate.type === 'train';
+  if (isTransport || candidate.startTime !== undefined) {
+    if (typeof candidate.startTime !== 'string' || !isValidDateString(candidate.startTime)) {
+      errors.push('Start time is required and must be a valid date/time string.');
+    }
   }
 
   // endTime (optional)
-  if (candidate.endTime !== undefined && candidate.endTime !== null && candidate.endTime !== '') {
+  if (candidate.endTime !== undefined && candidate.endTime !== null) {
     if (typeof candidate.endTime !== 'string' || !isValidDateString(candidate.endTime)) {
       errors.push('End time, if specified, must be a valid date/time string.');
     } else if (
@@ -91,8 +94,7 @@ export function validateBooking(input: unknown): ValidationResult<Booking> {
   // cancellationDeadline (optional)
   if (
     candidate.cancellationDeadline !== undefined &&
-    candidate.cancellationDeadline !== null &&
-    candidate.cancellationDeadline !== ''
+    candidate.cancellationDeadline !== null
   ) {
     if (
       typeof candidate.cancellationDeadline !== 'string' ||
@@ -105,8 +107,7 @@ export function validateBooking(input: unknown): ValidationResult<Booking> {
   // arrivalDeadline (optional)
   if (
     candidate.arrivalDeadline !== undefined &&
-    candidate.arrivalDeadline !== null &&
-    candidate.arrivalDeadline !== ''
+    candidate.arrivalDeadline !== null
   ) {
     if (
       typeof candidate.arrivalDeadline !== 'string' ||
@@ -126,7 +127,7 @@ export function validateBooking(input: unknown): ValidationResult<Booking> {
     type: candidate.type as BookingType,
     provider: (candidate.provider as string).trim(),
     location: (candidate.location as string).trim(),
-    startTime: candidate.startTime as string,
+    startTime: candidate.startTime ? (candidate.startTime as string) : undefined,
     endTime: candidate.endTime ? (candidate.endTime as string) : undefined,
     cost: candidate.cost as number,
     currency: (candidate.currency as string).trim().toUpperCase(),
