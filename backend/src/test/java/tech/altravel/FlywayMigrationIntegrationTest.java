@@ -24,13 +24,13 @@ class FlywayMigrationIntegrationTest extends PostgresIntegrationTestBase {
     private DataSource dataSource;
 
     @Test
-    @DisplayName("Flyway creates schema successfully on clean PostgreSQL and migration is applied")
+    @DisplayName("Flyway creates schema successfully on clean PostgreSQL and migrations are applied")
     void flywayMigrationApplied() {
         MigrationInfo current = flyway.info().current();
         assertThat(current).isNotNull();
-        assertThat(current.getVersion().getVersion()).isEqualTo("1");
-        assertThat(current.getDescription()).isEqualTo("initial schema");
+        assertThat(current.getVersion().getVersion()).isEqualTo("2");
         assertThat(current.getState().isApplied()).isTrue();
+        assertThat(flyway.info().applied()).hasSize(2);
     }
 
     @Test

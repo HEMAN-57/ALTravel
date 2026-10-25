@@ -140,4 +140,42 @@ class BookingDependencyConstraintIntegrationTest extends PostgresIntegrationTest
         }).isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("chk_dep_buffer");
     }
+
+    @Test
+    @DisplayName("Database rejects duplicate dependency pair (uq_dep_pair constraint)")
+    void duplicateDependencyPairRejectedByDatabaseConstraint() {
+        jdbcTemplate.update(
+                "INSERT INTO booking_dependencies (id, trip_id, upstream_booking_id, downstream_booking_id, relationship_type, required_buffer_minutes, commitment_type) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "dep-orig-sql", "trip-a", "b-a1", "b-a2", "transit-connection", 30, "hard"
+        );
+
+        assertThatThrownBy(() -> {
+            jdbcTemplate.update(
+                    "INSERT INTO booking_dependencies (id, trip_id, upstream_booking_id, downstream_booking_id, relationship_type, required_buffer_minutes, commitment_type) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "dep-dup-sql", "trip-a", "b-a1", "b-a2", "transit-connection", 60, "flexible"
+            );
+        }).isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("uq_dep_pair");
+    }
+
+    @Test
+    @DisplayName("Foreign key ON DELETE CASCADE automatically removes dependencies when referenced booking is deleted")
+    void foreignKeyCascadeDeletesDependenciesOnBookingDeletion() {
+        BookingDependencyEntity dep = new BookingDependencyEntity(
+                "dep-cascade-db", tripA, "b-a1", "b-a2", "transit-connection", 60, "hard", "DB cascade test"
+        );
+        dependencyRepository.saveAndFlush(dep);
+        assertThat(dependencyRepository.existsById("dep-cascade-db")).isTrue();
+
+        // Delete booking b-a1 directly
+        bookingRepository.deleteById("b-a1");
+        bookingRepository.flush();
+
+        // Verify the dependency was cascaded and deleted by PostgreSQL
+        assertThat(dependencyRepository.existsById("dep-cascade-db")).isFalse();
+        // Verify unrelated booking b-a2 remains intact
+        assertThat(bookingRepository.existsById("b-a2")).isTrue();
+    }
 }

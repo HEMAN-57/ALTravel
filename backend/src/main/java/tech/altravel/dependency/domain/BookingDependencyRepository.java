@@ -4,6 +4,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface BookingDependencyRepository extends JpaRepository<BookingDependencyEntity, String> {
@@ -13,4 +14,8 @@ public interface BookingDependencyRepository extends JpaRepository<BookingDepend
     List<BookingDependencyEntity> findByUpstreamBookingId(String upstreamBookingId);
 
     List<BookingDependencyEntity> findByDownstreamBookingId(String downstreamBookingId);
+
+    Optional<BookingDependencyEntity> findByIdAndTripId(String id, String tripId);
+
+    boolean existsByTripIdAndUpstreamBookingIdAndDownstreamBookingId(String tripId, String upstreamBookingId, String downstreamBookingId);
 }

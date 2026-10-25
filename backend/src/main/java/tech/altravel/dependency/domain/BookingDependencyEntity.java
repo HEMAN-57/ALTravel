@@ -7,6 +7,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -21,7 +22,9 @@ import java.util.Objects;
  * Explicit dependency link expressing that an upstream travel booking affects a downstream booking.
  */
 @Entity
-@Table(name = "booking_dependencies")
+@Table(name = "booking_dependencies", uniqueConstraints = {
+        @UniqueConstraint(name = "uq_dep_pair", columnNames = {"trip_id", "upstream_booking_id", "downstream_booking_id"})
+})
 public class BookingDependencyEntity {
 
     @Id
