@@ -84,14 +84,41 @@ describe('Storage Layer (localStorage persistence)', () => {
   });
 
   it('loads sample trip correctly into storage', () => {
-    const trip = loadSampleTrip();
-    expect(trip.id).toBe(DEMO_TRIP_ID);
-    expect(trip.bookings).toHaveLength(3);
-    expect(trip.isSample).toBe(true);
+    const result = loadSampleTrip();
+    expect(result.success).toBe(true);
+    expect(result.trip.id).toBe(DEMO_TRIP_ID);
+    expect(result.trip.bookings).toHaveLength(3);
+    expect(result.trip.isSample).toBe(true);
 
     const storedTrips = loadTrips();
     expect(storedTrips.some((t) => t.id === DEMO_TRIP_ID)).toBe(true);
     expect(getActiveTripId()).toBe(DEMO_TRIP_ID);
+  });
+
+  it('reports failure when an existing sample trip is present but refreshing or saving fails', () => {
+    // 1. Successfully load the initial sample trip
+    const initial = loadSampleTrip();
+    expect(initial.success).toBe(true);
+    expect(loadTrips().some((t) => t.id === DEMO_TRIP_ID)).toBe(true);
+
+    window.localStorage.setItem('unrelated_data', 'keep_me');
+
+    // 2. Simulate storage write failure for subsequent refresh
+    const originalSetItem = window.localStorage.setItem;
+    window.localStorage.setItem = (key: string, value: string) => {
+      if (key === STORAGE_KEYS.TRIPS) {
+        throw new Error('QuotaExceededError');
+      }
+      originalSetItem.call(window.localStorage, key, value);
+    };
+
+    const failedRefresh = loadSampleTrip();
+    expect(failedRefresh.success).toBe(false);
+    expect(failedRefresh.trip.id).toBe(DEMO_TRIP_ID);
+
+    // Unrelated data must remain intact
+    window.localStorage.setItem = originalSetItem;
+    expect(window.localStorage.getItem('unrelated_data')).toBe('keep_me');
   });
 
   it('resets only ALTravel storage keys without wiping unrelated storage keys', () => {

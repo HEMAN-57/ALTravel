@@ -1,4 +1,5 @@
 import { Booking } from '../bookings/booking.types';
+import { BookingDependency } from '../disruptions/dependency.types';
 
 export interface Trip {
   id: string;
@@ -8,6 +9,7 @@ export interface Trip {
   startDate: string; // ISO 8601 date string (YYYY-MM-DD)
   endDate: string; // ISO 8601 date string (YYYY-MM-DD)
   bookings: Booking[];
+  dependencies?: BookingDependency[]; // Explicit dependency graph between bookings
   isSample?: boolean; // Visible indicator for simulated demo itineraries
   description?: string;
   createdAt: string; // ISO 8601 timestamp

@@ -70,15 +70,15 @@ export const App: React.FC = () => {
 
   // Actions
   const handleLoadSampleTrip = () => {
-    const sample = loadSampleTrip();
-    const updatedList = loadTrips();
-    if (!updatedList.some((t) => t.id === sample.id)) {
+    const result = loadSampleTrip();
+    if (!result.success) {
       showNotification('Failed to persist sample trip to localStorage.', 'destructive');
       setTrips(loadTrips());
       return;
     }
+    const updatedList = loadTrips();
     setTrips(updatedList);
-    handleSelectTrip(sample.id);
+    handleSelectTrip(result.trip.id);
     showNotification('Sample trip (Hyderabad → Goa) loaded into localStorage.', 'info');
   };
 

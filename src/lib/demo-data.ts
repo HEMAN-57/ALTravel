@@ -74,4 +74,24 @@ export const SAMPLE_TRIP: Trip = {
       notes: 'Includes 1 guided dive, safety briefing, gear rental, and underwater photos. High dependency on morning arrival.',
     },
   ],
+  dependencies: [
+    {
+      id: 'demo-dep-flight-hotel',
+      upstreamBookingId: 'demo-booking-flight-1',
+      downstreamBookingId: 'demo-booking-hotel-1',
+      relationshipType: 'arrival-to-lodging',
+      requiredBufferMinutes: 120, // 2h airport egress, luggage collection, and transit to South Goa
+      commitmentType: 'flexible',
+      description: 'Flight arrival feeds into resort check-in; flexible evening reception.',
+    },
+    {
+      id: 'demo-dep-flight-scuba',
+      upstreamBookingId: 'demo-booking-flight-1',
+      downstreamBookingId: 'demo-booking-scuba-1',
+      relationshipType: 'arrival-to-activity',
+      requiredBufferMinutes: 720, // Overnight rest before early morning scuba boat dispatch
+      commitmentType: 'hard',
+      description: 'Arrival in Goa prior to next morning prepaid dive boat cutoff.',
+    },
+  ],
 };

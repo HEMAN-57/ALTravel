@@ -1,6 +1,8 @@
 import { Trip } from './trip.types';
 import { validateBooking, isValidDateString, ValidationResult } from '../bookings/booking.validation';
 import { Booking } from '../bookings/booking.types';
+import { BookingDependency } from '../disruptions/dependency.types';
+import { validateDependencies } from '../disruptions/dependency.validation';
 
 export function validateTrip(input: unknown): ValidationResult<Trip> {
   const errors: string[] = [];
@@ -82,6 +84,17 @@ export function validateTrip(input: unknown): ValidationResult<Trip> {
     }
   }
 
+  // dependencies collection (optional)
+  let validatedDependencies: BookingDependency[] | undefined = undefined;
+  if (candidate.dependencies !== undefined) {
+    const depResult = validateDependencies(candidate.dependencies, validatedBookings);
+    if (!depResult.success) {
+      errors.push(...depResult.errors);
+    } else {
+      validatedDependencies = depResult.data;
+    }
+  }
+
   if (errors.length > 0) {
     return { success: false, errors };
   }
@@ -95,6 +108,7 @@ export function validateTrip(input: unknown): ValidationResult<Trip> {
     startDate: candidate.startDate as string,
     endDate: candidate.endDate as string,
     bookings: validatedBookings,
+    dependencies: validatedDependencies,
     isSample,
     description:
       typeof candidate.description === 'string' && candidate.description.trim() !== ''

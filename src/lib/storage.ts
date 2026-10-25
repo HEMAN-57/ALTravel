@@ -121,10 +121,16 @@ export function deleteTrip(id: string): boolean {
   return saved;
 }
 
+export interface LoadSampleTripResult {
+  success: boolean;
+  trip: Trip;
+}
+
 /**
- * Loads or reloads the sample trip into localStorage and selects it.
+ * Loads or reloads the sample trip into localStorage and selects it if saved successfully.
+ * Explicitly exposes the persistence outcome to the caller.
  */
-export function loadSampleTrip(): Trip {
+export function loadSampleTrip(): LoadSampleTripResult {
   const trips = loadTrips();
   const existingIndex = trips.findIndex((t) => t.id === DEMO_TRIP_ID);
 
@@ -134,9 +140,14 @@ export function loadSampleTrip(): Trip {
     trips.unshift(SAMPLE_TRIP);
   }
 
-  saveTrips(trips);
-  setActiveTripId(DEMO_TRIP_ID);
-  return SAMPLE_TRIP;
+  const saved = saveTrips(trips);
+  if (saved) {
+    setActiveTripId(DEMO_TRIP_ID);
+  }
+  return {
+    success: saved,
+    trip: SAMPLE_TRIP,
+  };
 }
 
 /**
