@@ -54,3 +54,8 @@ build/
 .env
 .env.*
 !.env.example
+
+# Java / Maven build output
+target/
+**/target/
+*.class
