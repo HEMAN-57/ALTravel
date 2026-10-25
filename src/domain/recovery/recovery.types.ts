@@ -39,6 +39,12 @@ export interface RecoveryOption {
 }
 
 /**
+ * Refund eligibility classification.
+ * Unknown when provider policy or cutoff is unconfirmed.
+ */
+export type RefundEligibility = 'refundable' | 'non-refundable' | 'unknown';
+
+/**
  * User-specified preferences and hard constraints.
  */
 export interface UserRecoveryConstraints {
@@ -46,6 +52,7 @@ export interface UserRecoveryConstraints {
   maxBudget?: number; // Explicit hard budget constraint in trip currency
   criticalBookingIds?: string[]; // Non-negotiable commitments to preserve
   experienceValuePerBooking?: Record<string, number>; // Personal experience score (e.g. Scuba = 50 pts)
+  evaluationTime?: string; // Explicit ISO reference timestamp for deterministic policy & deadline evaluation
 }
 
 /**
@@ -55,10 +62,12 @@ export interface PlanCommitmentOutcome {
   bookingId: string;
   bookingTitle: string;
   bookingType: string;
-  status: 'preserved' | 'missed' | 'unaffected';
+  status: 'preserved' | 'missed' | 'unaffected' | 'unknown';
   reason: string;
   originalCost: number;
-  isNonRefundable: boolean;
+  refundStatus: RefundEligibility;
+  isNonRefundable: boolean; // true ONLY when known non-refundable
+  refundExplanation: string;
   lostExperienceValue: number;
 }
 
@@ -75,6 +84,7 @@ export interface RecoveryPlan {
   infeasibilityReasons: string[];
   additionalSpending: number; // Additional recovery spending (out-of-pocket)
   nonRefundableCashLoss: number; // Known non-refundable cash loss (strictly separate)
+  unknownRefundLoss?: number; // Amount of unconfirmed / uncertain cash at risk
   currency: string;
   experienceValueLost: number; // Personal experience value lost (strictly separate dimension)
   commitments: PlanCommitmentOutcome[];

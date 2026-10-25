@@ -688,6 +688,13 @@ export const RecoveryPlannerView: React.FC<RecoveryPlannerViewProps> = ({
                       </div>
                     </div>
 
+                    {plan.unknownRefundLoss && plan.unknownRefundLoss > 0 ? (
+                      <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-800 dark:text-amber-300 flex items-center justify-between">
+                        <span>Unconfirmed Cash at Risk (Unknown Refund):</span>
+                        <span className="font-bold">{formatCurrency(plan.unknownRefundLoss, plan.currency)}</span>
+                      </div>
+                    ) : null}
+
                     {/* Commitments breakdown */}
                     <div className="space-y-1.5 pt-2 border-t border-border/60 text-xs">
                       <span className="font-semibold text-muted-foreground uppercase text-[10px] tracking-wider block">
@@ -704,9 +711,13 @@ export const RecoveryPlannerView: React.FC<RecoveryPlannerViewProps> = ({
                               <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
                                 Preserved
                               </span>
+                            ) : comm.status === 'unknown' ? (
+                              <span className="text-amber-700 dark:text-amber-400 font-semibold">
+                                Uncertain ({comm.reason.split('(')[0]?.trim() || 'Unknown'})
+                              </span>
                             ) : (
                               <span className="text-destructive font-semibold">
-                                Forfeited ({comm.reason.split('(')[0]?.trim() || 'Missed'})
+                                Forfeited ({comm.refundStatus === 'unknown' ? 'Refund Unconfirmed' : comm.reason.split('(')[0]?.trim() || 'Missed'})
                               </span>
                             )}
                           </li>

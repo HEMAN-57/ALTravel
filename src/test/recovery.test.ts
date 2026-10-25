@@ -3,11 +3,13 @@ import {
   generateRecoveryPlans,
   generateActionPlan,
   validateRecoveryOption,
+  classifyBookingRefundability,
 } from '../domain/recovery/recovery.engine';
 import {
   RecoveryOption,
   UserRecoveryConstraints,
 } from '../domain/recovery/recovery.types';
+import { Booking } from '../domain/bookings/booking.types';
 import { SAMPLE_TRIP, DEMO_RECOVERY_OPTIONS, DEMO_DISRUPTION } from '../lib/demo-data';
 import { propagateDisruption } from '../domain/disruptions/propagation.engine';
 
@@ -310,5 +312,255 @@ describe('Milestone 3: Recovery Planning MVP Engine', () => {
     const run2 = generateRecoveryPlans(SAMPLE_TRIP, disruptionResult, DEMO_RECOVERY_OPTIONS as RecoveryOption[], constraints);
 
     expect(JSON.stringify(run1)).toEqual(JSON.stringify(run2));
+  });
+});
+
+describe('Milestone 3.1: Critical Correctness Pass', () => {
+  const disruptionResult = propagateDisruption(SAMPLE_TRIP, DEMO_DISRUPTION);
+
+  describe('Deterministic Refund Classification', () => {
+    const sampleBooking: Booking = {
+      id: 'book-refund-test',
+      tripId: SAMPLE_TRIP.id,
+      type: 'activity',
+      provider: 'Sunset Cruise',
+      location: 'Goa',
+      cost: 2500,
+      currency: 'INR',
+      status: 'confirmed',
+      cancellationDeadline: '2026-11-12T10:00:00+05:30',
+      cancellationPolicyNotes: 'Free cancellation up to cutoff; non-refundable thereafter.',
+    };
+
+    it('classifies as refundable when evaluation reference time precedes cancellation deadline', () => {
+      // Reference time 08:00 is before deadline 10:00
+      const result = classifyBookingRefundability(sampleBooking, '2026-11-12T08:00:00+05:30');
+      expect(result.status).toBe('refundable');
+      expect(result.isNonRefundable).toBe(false);
+      expect(result.explanation).toContain('precedes cancellation deadline');
+    });
+
+    it('classifies as non-refundable when evaluation reference time passes cancellation deadline', () => {
+      // Reference time 11:00 is after deadline 10:00
+      const result = classifyBookingRefundability(sampleBooking, '2026-11-12T11:00:00+05:30');
+      expect(result.status).toBe('non-refundable');
+      expect(result.isNonRefundable).toBe(true);
+      expect(result.explanation).toContain('passed relative to evaluation reference time');
+    });
+
+    it('represents refundability as unknown when cancellation policy notes are missing', () => {
+      const unrecordedPolicyBooking: Booking = {
+        ...sampleBooking,
+        cancellationPolicyNotes: undefined,
+        cancellationDeadline: undefined,
+      };
+
+      const result = classifyBookingRefundability(unrecordedPolicyBooking, '2026-11-12T08:00:00+05:30');
+      expect(result.status).toBe('unknown');
+      expect(result.isNonRefundable).toBe(false);
+      expect(result.explanation).toContain('No cancellation policy recorded');
+    });
+
+    it('represents refundability as unknown when policy is conditional but cutoff timestamp is missing', () => {
+      const vaguePolicyBooking: Booking = {
+        ...sampleBooking,
+        cancellationPolicyNotes: 'Airline fee applies within 24 hours of flight departure.',
+        cancellationDeadline: undefined, // missing exact deadline timestamp
+      };
+
+      const result = classifyBookingRefundability(vaguePolicyBooking, '2026-11-12T08:00:00+05:30');
+      expect(result.status).toBe('unknown');
+      expect(result.isNonRefundable).toBe(false);
+      expect(result.explanation).toContain('exact cancellation cutoff timestamp is unrecorded');
+    });
+
+    it('isolates unknown refund losses into unknownRefundLoss without conflating with confirmed cash loss', () => {
+      // Trip with an unrecorded-policy activity that is missed
+      const tripWithUnrecordedPolicy: typeof SAMPLE_TRIP = {
+        ...SAMPLE_TRIP,
+        bookings: SAMPLE_TRIP.bookings.map((b) =>
+          b.id === 'demo-booking-scuba-1'
+            ? { ...b, cancellationPolicyNotes: undefined, cancellationDeadline: undefined }
+            : b
+        ),
+      };
+
+      const plans = generateRecoveryPlans(
+        tripWithUnrecordedPolicy,
+        disruptionResult,
+        DEMO_RECOVERY_OPTIONS as RecoveryOption[],
+        { priority: 'minimize-cost' }
+      );
+
+      const trainPlan = plans.find((p) => p.name.includes('Budget Train'));
+      expect(trainPlan).toBeDefined();
+      // Scuba is missed, but policy is unrecorded, so confirmed nonRefundableCashLoss is 0,
+      // and unknownRefundLoss is 4200
+      expect(trainPlan?.nonRefundableCashLoss).toBe(0);
+      expect(trainPlan?.unknownRefundLoss).toBe(4200);
+      expect(trainPlan?.assumptionsAndUnknowns.some((a) => a.includes('unconfirmed by provider; treated as unknown'))).toBe(true);
+    });
+  });
+
+  describe('Recovery Plan Grouping & Cost Deduplication', () => {
+    it('does not pair unrelated local transport merely because it shares a booking ID', () => {
+      const options: RecoveryOption[] = [
+        {
+          id: 'opt-flight',
+          tripId: SAMPLE_TRIP.id,
+          title: 'Morning Replacement Flight',
+          description: 'Flight',
+          type: 'alternative-transport',
+          additionalCost: 3500,
+          currency: 'INR',
+          targetBookingId: 'demo-booking-flight-1',
+          deadlineType: 'unknown',
+          isSimulated: true,
+        },
+        {
+          id: 'opt-train',
+          tripId: SAMPLE_TRIP.id,
+          title: 'Afternoon Rail',
+          description: 'Rail',
+          type: 'alternative-transport',
+          additionalCost: 800,
+          currency: 'INR',
+          targetBookingId: 'demo-booking-flight-1',
+          deadlineType: 'unknown',
+          isSimulated: true,
+        },
+        {
+          id: 'opt-airport-cab',
+          tripId: SAMPLE_TRIP.id,
+          title: 'Airport Taxi',
+          description: 'Airport cab specifically targeting flight arrival',
+          type: 'local-transport',
+          additionalCost: 1100,
+          currency: 'INR',
+          targetBookingId: 'opt-flight', // Genuinely compatible with flight ONLY
+          deadlineType: 'unknown',
+          isSimulated: false,
+        },
+      ];
+
+      const plans = generateRecoveryPlans(SAMPLE_TRIP, disruptionResult, options, {
+        priority: 'minimize-cost',
+      });
+
+      const flightPlan = plans.find((p) => p.name.includes('Morning Replacement Flight'));
+      const trainPlan = plans.find((p) => p.name.includes('Afternoon Rail'));
+
+      // Flight plan should include the airport taxi (3500 + 1100 = 4600)
+      expect(flightPlan?.options.some((o) => o.id === 'opt-airport-cab')).toBe(true);
+      expect(flightPlan?.additionalSpending).toBe(4600);
+
+      // Train plan must NOT include the airport taxi
+      expect(trainPlan?.options.some((o) => o.id === 'opt-airport-cab')).toBe(false);
+      expect(trainPlan?.additionalSpending).toBe(800);
+    });
+
+    it('avoids double-counting option costs when options are duplicated', () => {
+      const duplicatedOptions: RecoveryOption[] = [
+        DEMO_RECOVERY_OPTIONS[0] as RecoveryOption,
+        DEMO_RECOVERY_OPTIONS[0] as RecoveryOption, // exact duplicate candidate
+        DEMO_RECOVERY_OPTIONS[2] as RecoveryOption, // airport cab
+      ];
+
+      const plans = generateRecoveryPlans(SAMPLE_TRIP, disruptionResult, duplicatedOptions, {
+        priority: 'minimize-cost',
+      });
+
+      const flightPlan = plans.find((p) => p.name.includes('Alternative Flight'));
+      // 4200 (flight) + 1200 (cab) = 5400, not 4200 + 4200 + 1200 = 9600
+      expect(flightPlan?.additionalSpending).toBe(5400);
+    });
+
+    it('generates a distinct standalone plan for unlinked user-entered local transport', () => {
+      const standaloneMetro: RecoveryOption = {
+        id: 'opt-metro-standalone',
+        tripId: SAMPLE_TRIP.id,
+        title: 'City Express Metro Line',
+        description: 'Direct metro journey from station to hotel',
+        type: 'local-transport',
+        additionalCost: 150,
+        currency: 'INR',
+        targetBookingId: 'some-other-booking',
+        deadlineType: 'unknown',
+        isSimulated: false,
+      };
+
+      const plans = generateRecoveryPlans(
+        SAMPLE_TRIP,
+        disruptionResult,
+        [...(DEMO_RECOVERY_OPTIONS as RecoveryOption[]), standaloneMetro],
+        { priority: 'minimize-cost' }
+      );
+
+      const metroPlan = plans.find((p) => p.name === 'City Express Metro Line');
+      expect(metroPlan).toBeDefined();
+      expect(metroPlan?.options).toHaveLength(1);
+      expect(metroPlan?.additionalSpending).toBe(150);
+    });
+  });
+
+  describe('Feasibility Enforcement & Priority Recommendations', () => {
+    it('marks a plan infeasible when timing is unknown for a non-negotiable critical booking', () => {
+      const tripWithUnscheduledActivity: typeof SAMPLE_TRIP = {
+        ...SAMPLE_TRIP,
+        bookings: SAMPLE_TRIP.bookings.map((b) =>
+          b.id === 'demo-booking-scuba-1'
+            ? { ...b, startTime: undefined, arrivalDeadline: undefined } // unscheduled timing
+            : b
+        ),
+      };
+
+      const plans = generateRecoveryPlans(
+        tripWithUnscheduledActivity,
+        disruptionResult,
+        DEMO_RECOVERY_OPTIONS as RecoveryOption[],
+        {
+          priority: 'preserve-activity',
+          criticalBookingIds: ['demo-booking-scuba-1'],
+        }
+      );
+
+      // Because timing is unknown, scuba cannot be verified, so plan is not marked feasible
+      const flightPlan = plans.find((p) => p.name.includes('Alternative Flight'));
+      expect(flightPlan?.isFeasible).toBe(false);
+      expect(flightPlan?.isFallback).toBe(true);
+      expect(flightPlan?.infeasibilityReasons.some((r) => r.includes('Cannot confirm non-negotiable commitment'))).toBe(true);
+    });
+
+    it('correctly adapts recommendation across all three priorities: minimize-cost, preserve-activity, earliest-arrival', () => {
+      // 1. minimize-cost -> Train plan wins (₹950 extra spend vs ₹5,400)
+      const costPlans = generateRecoveryPlans(
+        SAMPLE_TRIP,
+        disruptionResult,
+        DEMO_RECOVERY_OPTIONS as RecoveryOption[],
+        { priority: 'minimize-cost' }
+      );
+      expect(costPlans[0]!.name).toContain('Budget Train');
+      expect(costPlans[0]!.recommendationReason).toContain('minimizes extra out-of-pocket spending');
+
+      // 2. preserve-activity -> Flight plan wins (preserves Scuba vs misses Scuba)
+      const actPlans = generateRecoveryPlans(
+        SAMPLE_TRIP,
+        disruptionResult,
+        DEMO_RECOVERY_OPTIONS as RecoveryOption[],
+        { priority: 'preserve-activity' }
+      );
+      expect(actPlans[0]!.name).toContain('Alternative Flight');
+      expect(actPlans[0]!.recommendationReason).toContain('successfully preserves your scheduled activities');
+
+      // 3. earliest-arrival -> Flight plan wins (arrives 14:15 vs 20:30)
+      const earlyPlans = generateRecoveryPlans(
+        SAMPLE_TRIP,
+        disruptionResult,
+        DEMO_RECOVERY_OPTIONS as RecoveryOption[],
+        { priority: 'earliest-arrival' }
+      );
+      expect(earlyPlans[0]!.name).toContain('Alternative Flight');
+      expect(earlyPlans[0]!.recommendationReason).toContain('earliest arrival');
+    });
   });
 });

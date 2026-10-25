@@ -12,6 +12,7 @@ import {
   ActionItem,
   UserRecoveryConstraints,
   PlanCommitmentOutcome,
+  RefundEligibility,
 } from './recovery.types';
 import { isValidDateString } from '../bookings/booking.validation';
 
@@ -124,6 +125,114 @@ export function validateRecoveryOption(
 }
 
 /**
+ * Result of deterministic refundability classification.
+ */
+export interface RefundClassification {
+  status: RefundEligibility;
+  isNonRefundable: boolean;
+  explanation: string;
+}
+
+/**
+ * Deterministically classifies refundability for a booking based on explicit policy data
+ * and an evaluation reference timestamp (never relies on non-deterministic Date.now()).
+ * If refundability cannot be established from recorded data, it is marked as 'unknown'.
+ */
+export function classifyBookingRefundability(
+  booking: Booking,
+  evaluationReferenceTime: string
+): RefundClassification {
+  if (!booking.cost || booking.cost <= 0) {
+    return {
+      status: 'refundable',
+      isNonRefundable: false,
+      explanation: 'No financial cost committed to this booking.',
+    };
+  }
+
+  // If no cancellation policy is recorded, refundability cannot be established
+  if (!booking.cancellationPolicyNotes || booking.cancellationPolicyNotes.trim() === '') {
+    return {
+      status: 'unknown',
+      isNonRefundable: false,
+      explanation: 'No cancellation policy recorded by provider; refund eligibility is unconfirmed.',
+    };
+  }
+
+  const notes = booking.cancellationPolicyNotes.toLowerCase();
+
+  // Explicit non-refundable policy without deadline condition
+  if (
+    (notes.includes('non-refundable') || notes.includes('non refundable') || notes.includes('retained') || notes.includes('forfeited')) &&
+    !notes.includes('free reschedule') &&
+    !notes.includes('100% refund') &&
+    !booking.cancellationDeadline
+  ) {
+    return {
+      status: 'non-refundable',
+      isNonRefundable: true,
+      explanation: 'Provider terms state booking is explicitly non-refundable.',
+    };
+  }
+
+  // Explicit 100% refund / free cancellation without cutoff deadline
+  if (
+    (notes.includes('100% refund') || notes.includes('free cancellation')) &&
+    !booking.cancellationDeadline &&
+    !notes.includes('prior')
+  ) {
+    return {
+      status: 'refundable',
+      isNonRefundable: false,
+      explanation: 'Provider terms state booking is fully refundable.',
+    };
+  }
+
+  // Evaluation against recorded cancellation deadline
+  if (booking.cancellationDeadline) {
+    const evalMs = Date.parse(evaluationReferenceTime);
+    const deadlineMs = Date.parse(booking.cancellationDeadline);
+
+    if (Number.isNaN(evalMs) || Number.isNaN(deadlineMs)) {
+      return {
+        status: 'unknown',
+        isNonRefundable: false,
+        explanation: 'Invalid reference or cancellation timestamp prevented deterministic cutoff check.',
+      };
+    }
+
+    if (evalMs > deadlineMs) {
+      return {
+        status: 'non-refundable',
+        isNonRefundable: true,
+        explanation: `Cancellation deadline (${booking.cancellationDeadline}) passed relative to evaluation reference time (${evaluationReferenceTime}); non-refundable per provider policy.`,
+      };
+    } else {
+      return {
+        status: 'refundable',
+        isNonRefundable: false,
+        explanation: `Evaluation reference time (${evaluationReferenceTime}) precedes cancellation deadline (${booking.cancellationDeadline}); eligible for refund/credit per provider policy.`,
+      };
+    }
+  }
+
+  // Conditional policy phrases without recorded cancellationDeadline timestamp
+  if (notes.includes('within') || notes.includes('prior') || notes.includes('fee')) {
+    return {
+      status: 'unknown',
+      isNonRefundable: false,
+      explanation: 'Provider policy specifies conditional refund terms, but exact cancellation cutoff timestamp is unrecorded.',
+    };
+  }
+
+  return {
+    status: 'unknown',
+    isNonRefundable: false,
+    explanation: 'Provider cancellation policy is unverified.',
+  };
+}
+
+/**
  * Evaluates candidate recovery options into comparable recovery plans.
  */
 export function generateRecoveryPlans(
@@ -138,53 +247,80 @@ export function generateRecoveryPlans(
 
   const currency = trip.bookings[0]?.currency || 'INR';
 
-  // Group options into distinct actionable plans:
-  // 1. Standalone alternative transport or primary options
-  // 2. Pairings with local transport or support options where relevant
-  const primaryOptions = candidateOptions.filter(
+  // Deterministic evaluation reference time: explicit constraint, disruption time, or trip start
+  const evaluationReferenceTime =
+    constraints.evaluationTime ||
+    disruptionResult?.targetDisruption?.originalStartTime ||
+    trip.bookings[0]?.startTime ||
+    trip.startDate;
+
+  // Deduplicate candidate options by ID to avoid double-processing
+  const uniqueCandidateMap = new Map<string, RecoveryOption>();
+  for (const opt of candidateOptions) {
+    uniqueCandidateMap.set(opt.id, opt);
+  }
+  const cleanOptions = Array.from(uniqueCandidateMap.values());
+
+  const primaryOptions = cleanOptions.filter(
     (opt) => opt.type === 'alternative-transport' || opt.type === 'reschedule' || opt.type === 'drop-commitment'
   );
-  const localTransportOptions = candidateOptions.filter(
+  const localTransportOptions = cleanOptions.filter(
     (opt) => opt.type === 'local-transport'
   );
-  const supportOptions = candidateOptions.filter(
+  const supportOptions = cleanOptions.filter(
     (opt) => opt.type === 'contact-provider'
   );
 
-  // If there are no categorized primary options, treat each candidate option as its own plan
+  // Form defensible, genuinely compatible plans:
+  // Rule 1: A local transport option is paired with a primary option ONLY when explicitly linked (loc.targetBookingId === prim.id).
+  //         It is never paired merely because they address the same original disrupted booking.
+  // Rule 2: A support option (e.g. hotel late check-in) is paired ONLY if explicitly linked or genuinely needed due to late arrival.
+  // Rule 3: Standalone local transport or independent options form their own distinct plan.
   const planDefinitions: { name: string; description: string; options: RecoveryOption[] }[] = [];
 
   if (primaryOptions.length > 0) {
     primaryOptions.forEach((prim) => {
-      // Find relevant local transport or support options
-      const relatedLocal = localTransportOptions.find(
-        (loc) => loc.targetBookingId === prim.targetBookingId || loc.targetBookingId === prim.id
-      );
-      const relatedSupport = supportOptions.find(
-        (sup) => sup.targetBookingId === prim.targetBookingId
-      );
-
       const optionsForPlan: RecoveryOption[] = [prim];
+
+      // Genuinely compatible local transport explicitly targeting this primary option
+      const relatedLocal = localTransportOptions.find(
+        (loc) => loc.targetBookingId === prim.id
+      );
       if (relatedLocal) {
         optionsForPlan.push(relatedLocal);
       }
+
+      // Check if plan arrives in the evening/night (> 18:00) requiring late hotel check-in notification
+      const primArrival = relatedLocal?.expectedArrivalTime || prim.expectedArrivalTime;
+      const arrivesLate = primArrival ? new Date(primArrival).getHours() >= 18 : false;
+
+      const relatedSupport = supportOptions.find((sup) => {
+        if (sup.targetBookingId === prim.id) return true;
+        // Genuinely relevant hotel contact for late arrival
+        const targetBooking = trip.bookings.find((b) => b.id === sup.targetBookingId);
+        if (targetBooking?.type === 'hotel' && arrivesLate) return true;
+        return false;
+      });
+
       if (relatedSupport) {
         optionsForPlan.push(relatedSupport);
       }
 
+      // Deduplicate options within this plan definition
+      const uniquePlanOpts = Array.from(new Map(optionsForPlan.map((o) => [o.id, o])).values());
+
       planDefinitions.push({
-        name: prim.title,
+        name: relatedLocal ? `${prim.title} + ${relatedLocal.title}` : prim.title,
         description: prim.description,
-        options: optionsForPlan,
+        options: uniquePlanOpts,
       });
     });
 
-    // Also include standalone local transport if user added one that wasn't grouped
+    // Standalone local transport options (options that do not target a specific primary option ID)
     localTransportOptions.forEach((loc) => {
-      const alreadyIncluded = planDefinitions.some((pd) =>
-        pd.options.some((o) => o.id === loc.id)
-      );
-      if (!alreadyIncluded) {
+      // If loc does not target a primary option, it has standalone meaning
+      const isExplicitPair = primaryOptions.some((p) => loc.targetBookingId === p.id);
+      if (!isExplicitPair) {
         planDefinitions.push({
           name: loc.title,
           description: loc.description,
@@ -194,7 +330,7 @@ export function generateRecoveryPlans(
     });
   } else {
     // Treat each individual option as a candidate plan
-    candidateOptions.forEach((opt) => {
+    cleanOptions.forEach((opt) => {
       planDefinitions.push({
         name: opt.title,
         description: opt.description,
@@ -206,13 +342,13 @@ export function generateRecoveryPlans(
   // Evaluate each plan
   const evaluatedPlans: RecoveryPlan[] = planDefinitions.map((planDef, index) => {
     const planId = `plan-${index + 1}`;
-    const options = planDef.options;
+    // Deduplicate options to strictly avoid double-counting
+    const options = Array.from(new Map(planDef.options.map((o) => [o.id, o])).values());
 
-    // 1. Calculate Additional Spending (strictly out-of-pocket costs for recovery options)
+    // 1. Calculate Additional Spending (strictly out-of-pocket costs, counted exactly once)
     const additionalSpending = options.reduce((sum, o) => sum + (o.additionalCost || 0), 0);
 
     // 2. Determine estimated arrival at destination
-    // Pick the latest arrival among transport options in the plan
     let estimatedArrival: string | undefined = undefined;
     for (const opt of options) {
       if (opt.expectedArrivalTime) {
@@ -225,6 +361,7 @@ export function generateRecoveryPlans(
     // 3. Evaluate downstream commitments (hotel, activities, connections)
     const commitments: PlanCommitmentOutcome[] = [];
     let nonRefundableCashLoss = 0;
+    let unknownRefundLoss = 0;
     let experienceValueLost = 0;
     const assumptionsAndUnknowns: string[] = [];
 
@@ -240,23 +377,22 @@ export function generateRecoveryPlans(
     trip.bookings.forEach((booking) => {
       // If it is the disrupted booking itself (e.g. cancelled/delayed feeder flight)
       if (disruptionResult && booking.id === disruptionResult.disruptedBookingId) {
-        // Handled by alternative option
         return;
       }
 
       const experienceVal = constraints.experienceValuePerBooking?.[booking.id] ?? 0;
 
-      // Determine if this booking is preserved or missed under this plan
-      let status: 'preserved' | 'missed' | 'unaffected' = 'preserved';
+      // Determine if this booking is preserved, missed, or unknown under this plan
+      let status: 'preserved' | 'missed' | 'unknown' = 'preserved';
       let reason = 'Schedule preserved by selected recovery option.';
 
-      // Check if arrival is in time for booking
+      // Check arrival timing against booking cutoff & dependency buffers
       if (estimatedArrival && booking.startTime) {
-        const arrivalTime = new Date(estimatedArrival).getTime();
-        const bookingStart = new Date(booking.startTime).getTime();
-        const bookingCutoff = booking.arrivalDeadline ? new Date(booking.arrivalDeadline).getTime() : bookingStart;
+        const arrivalTime = Date.parse(estimatedArrival);
+        const bookingStart = Date.parse(booking.startTime);
+        const bookingCutoff = booking.arrivalDeadline ? Date.parse(booking.arrivalDeadline) : bookingStart;
 
-        // Check if there is an explicit dependency buffer
+        // Check explicit dependency buffer
         const dep = trip.dependencies?.find((d) => d.downstreamBookingId === booking.id);
         const requiredBufferMinutes = dep?.requiredBufferMinutes ?? 0;
         const availableTransferMinutes = Math.floor((bookingStart - arrivalTime) / (60 * 1000));
@@ -268,6 +404,25 @@ export function generateRecoveryPlans(
           status = 'missed';
           reason = `Buffer deficit of ${requiredBufferMinutes - availableTransferMinutes} minutes (Available: ${availableTransferMinutes}m, Required: ${requiredBufferMinutes}m before ${booking.provider}).`;
         }
+      } else if (estimatedArrival && !booking.startTime && booking.arrivalDeadline) {
+        const arrivalTime = Date.parse(estimatedArrival);
+        const bookingCutoff = Date.parse(booking.arrivalDeadline);
+        if (arrivalTime > bookingCutoff) {
+          status = 'missed';
+          reason = `Estimated arrival (${estimatedArrival}) exceeds required arrival cutoff (${booking.arrivalDeadline}).`;
+        }
+      } else if (!booking.startTime && !booking.arrivalDeadline) {
+        status = 'unknown';
+        reason = 'Booking has no recorded start time or arrival cutoff; timing feasibility cannot be deterministically verified.';
+        assumptionsAndUnknowns.push(
+          `Feasibility for ${booking.provider} is uncertain due to missing scheduled timing.`
+        );
+      } else if (!estimatedArrival) {
+        status = 'unknown';
+        reason = 'Plan arrival timing is unrecorded; commitment feasibility cannot be deterministically verified.';
+        assumptionsAndUnknowns.push(
+          `Feasibility for ${booking.provider} is uncertain due to missing arrival timing.`
+        );
       }
 
       // Check if any option explicitly drops or reschedules this booking
@@ -277,14 +432,17 @@ export function generateRecoveryPlans(
         reason = `Commitment dropped per plan option: ${dropOpt.title}.`;
       }
 
-      // Check hotel specific arrival
+      // Hotel specific late arrival check
       if (booking.type === 'hotel') {
         const hotelContactOpt = options.find((o) => o.targetBookingId === booking.id && o.type === 'contact-provider');
         if (estimatedArrival && booking.arrivalDeadline) {
-          if (new Date(estimatedArrival) <= new Date(booking.arrivalDeadline)) {
+          const arrivalTime = Date.parse(estimatedArrival);
+          const cutoff = Date.parse(booking.arrivalDeadline);
+
+          if (arrivalTime <= cutoff) {
             status = 'preserved';
             reason = hotelContactOpt
-              ? 'Late check-in requested and arrival is within recorded hotel cutoff window.'
+              ? 'Late check-in confirmed with hotel and arrival is within recorded cutoff window.'
               : 'Arrival is within recorded hotel cutoff window, though provider confirmation is advised.';
           } else if (hotelContactOpt) {
             status = 'preserved';
@@ -299,13 +457,19 @@ export function generateRecoveryPlans(
         );
       }
 
+      // Refund classification for missed bookings
       if (status === 'missed') {
-        // Non-refundable cash loss calculation (strictly separate from extra spending)
-        const isNonRefundable = isBookingNonRefundable(booking);
-        if (isNonRefundable) {
+        const refundInfo = classifyBookingRefundability(booking, evaluationReferenceTime);
+        if (refundInfo.status === 'non-refundable') {
           nonRefundableCashLoss += booking.cost;
+        } else if (refundInfo.status === 'unknown') {
+          unknownRefundLoss += booking.cost;
+          assumptionsAndUnknowns.push(
+            `Refund eligibility for ${booking.provider} (${booking.cost} ${currency}) is unconfirmed by provider; treated as unknown.`
+          );
         }
-        // Experience value lost (strictly separate subjective metric, NEVER added to currency)
+
+        // Subjective experience value lost (strictly separate metric, never added to money)
         experienceValueLost += experienceVal;
 
         commitments.push({
@@ -315,7 +479,9 @@ export function generateRecoveryPlans(
           status: 'missed',
           reason,
           originalCost: booking.cost,
-          isNonRefundable,
+          refundStatus: refundInfo.status,
+          isNonRefundable: refundInfo.isNonRefundable,
+          refundExplanation: refundInfo.explanation,
           lostExperienceValue: experienceVal,
         });
       } else {
@@ -323,10 +489,12 @@ export function generateRecoveryPlans(
           bookingId: booking.id,
           bookingTitle: booking.provider,
           bookingType: booking.type,
-          status: 'preserved',
+          status,
           reason,
           originalCost: booking.cost,
+          refundStatus: 'refundable',
           isNonRefundable: false,
+          refundExplanation: 'Commitment retained.',
           lostExperienceValue: 0,
         });
       }
@@ -340,24 +508,29 @@ export function generateRecoveryPlans(
     if (constraints.maxBudget !== undefined && additionalSpending > constraints.maxBudget) {
       isFeasible = false;
       infeasibilityReasons.push(
-        `Exceeds maximum recovery budget of ${constraints.maxBudget} ${currency} (Requires ${additionalSpending} ${currency}).`
+        `Exceeds maximum recovery budget limit of ${constraints.maxBudget} ${currency} (Requires ${additionalSpending} ${currency}).`
       );
     }
 
-    // Hard constraint: Non-negotiable critical booking preserved
+    // Hard constraint: Non-negotiable critical commitments preserved
     if (constraints.criticalBookingIds && constraints.criticalBookingIds.length > 0) {
       for (const criticalId of constraints.criticalBookingIds) {
-        const missedCrit = commitments.find((c) => c.bookingId === criticalId && c.status === 'missed');
-        if (missedCrit) {
+        const targetCommitment = commitments.find((c) => c.bookingId === criticalId);
+        if (targetCommitment?.status === 'missed') {
           isFeasible = false;
           infeasibilityReasons.push(
-            `Fails to preserve non-negotiable commitment "${missedCrit.bookingTitle}" (${missedCrit.reason}).`
+            `Fails to preserve non-negotiable commitment "${targetCommitment.bookingTitle}" (${targetCommitment.reason}).`
+          );
+        } else if (targetCommitment?.status === 'unknown') {
+          isFeasible = false;
+          infeasibilityReasons.push(
+            `Cannot confirm non-negotiable commitment "${targetCommitment.bookingTitle}" due to unrecorded timing constraints.`
           );
         }
       }
     }
 
-    // Local transport note
+    // Local transport assumption note
     const hasLocalTransport = options.some((o) => o.type === 'local-transport');
     if (hasLocalTransport) {
       assumptionsAndUnknowns.push(
@@ -375,6 +548,7 @@ export function generateRecoveryPlans(
       infeasibilityReasons,
       additionalSpending,
       nonRefundableCashLoss,
+      unknownRefundLoss: unknownRefundLoss > 0 ? unknownRefundLoss : undefined,
       currency,
       experienceValueLost,
       commitments,
@@ -408,8 +582,8 @@ export function generateRecoveryPlans(
 
       case 'preserve-activity': {
         // 1. Highest number of preserved activities/commitments
-        const aPreserved = a.commitments.filter((c) => c.status === 'preserved' || c.status === 'unaffected').length;
-        const bPreserved = b.commitments.filter((c) => c.status === 'preserved' || c.status === 'unaffected').length;
+        const aPreserved = a.commitments.filter((c) => c.status === 'preserved').length;
+        const bPreserved = b.commitments.filter((c) => c.status === 'preserved').length;
         if (aPreserved !== bPreserved) {
           return bPreserved - aPreserved;
         }
@@ -444,7 +618,7 @@ export function generateRecoveryPlans(
     // Explain why the recommended plan wins under the selected priority
     if (!topPlan.isFeasible) {
       topPlan.recommendationReason =
-        'No fully feasible plan found satisfying all hard constraints. Presented as the best available fallback option.';
+        'No plan found satisfying all explicit hard constraints. Presented as the best available fallback option.';
     } else {
       switch (constraints.priority) {
         case 'minimize-cost':
@@ -484,7 +658,7 @@ export function generateActionPlan(
       case 'alternative-transport': {
         actions.push({
           id: `act-${stepCounter++}`,
-          stepNumber: 0, // will assign after sorting
+          stepNumber: 0,
           action: `Book alternative transport: ${opt.title} (${opt.description})`,
           provider,
           deadline: opt.deadline,
@@ -498,7 +672,6 @@ export function generateActionPlan(
       }
 
       case 'local-transport': {
-        // Local transport typically depends on having transport booked
         const parentTransport = actions.find((a) => a.action.startsWith('Book alternative transport'));
         actions.push({
           id: `act-${stepCounter++}`,
@@ -596,24 +769,21 @@ export function generateActionPlan(
   const completedIds = new Set<string>();
 
   while (remaining.length > 0) {
-    // Find items whose prerequisites are satisfied
     const eligible = remaining.filter((item) =>
       item.prerequisiteStepIds.every((pid) => completedIds.has(pid))
     );
 
     if (eligible.length === 0) {
-      // Break cycle if any malformed prerequisites exist
       remaining.forEach((item) => ordered.push(item));
       break;
     }
 
-    // Sort eligible: known deadlines first (chronological), then unknown
     eligible.sort((a, b) => {
       if (a.deadline && b.deadline) {
         return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
       }
       if (a.deadline && !b.deadline) {
-        return -1; // known deadline first
+        return -1;
       }
       if (!a.deadline && b.deadline) {
         return 1;
@@ -629,32 +799,10 @@ export function generateActionPlan(
     remaining.splice(index, 1);
   }
 
-  // Assign sequential step numbers 1..N
   return ordered.map((item, idx) => ({
     ...item,
     stepNumber: idx + 1,
   }));
-}
-
-/**
- * Determines whether a booking's cancellation policy indicates non-refundable loss.
- */
-function isBookingNonRefundable(booking: Booking): boolean {
-  if (!booking.cost || booking.cost <= 0) return false;
-  if (!booking.cancellationPolicyNotes) return true; // Assume non-refundable unless stated otherwise
-
-  const notes = booking.cancellationPolicyNotes.toLowerCase();
-  if (notes.includes('non-refundable') || notes.includes('retained') || notes.includes('forfeited')) {
-    return true;
-  }
-  if (notes.includes('100% refund') || notes.includes('free cancellation')) {
-    // If cancellation deadline is specified and in the past, it is non-refundable
-    if (booking.cancellationDeadline) {
-      return new Date(booking.cancellationDeadline).getTime() < Date.now();
-    }
-    return false;
-  }
-  return true;
 }
 
 function compareArrivalTimes(a?: string, b?: string): number {
