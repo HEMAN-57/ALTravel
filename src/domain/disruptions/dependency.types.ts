@@ -1,5 +1,5 @@
 /**
- * Explicit Dependency Model for ALTravel
+ * Explicit Dependency Model for TripSync
  * 
  * Expresses that an upstream travel booking affects a downstream booking.
  * Dependencies are NOT inferred merely because bookings belong to the same trip;

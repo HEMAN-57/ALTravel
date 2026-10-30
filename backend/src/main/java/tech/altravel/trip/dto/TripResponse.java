@@ -14,9 +14,17 @@ public record TripResponse(
         LocalDate endDate,
         boolean isSample,
         String description,
+        java.math.BigDecimal totalBudget,
+        String userId,
         Instant createdAt,
         Instant updatedAt
 ) {
+    public TripResponse(String id, String name, String origin, String destination,
+                        LocalDate startDate, LocalDate endDate, boolean isSample,
+                        String description, Instant createdAt, Instant updatedAt) {
+        this(id, name, origin, destination, startDate, endDate, isSample, description, null, null, createdAt, updatedAt);
+    }
+
     public static TripResponse fromEntity(TripEntity entity) {
         return new TripResponse(
                 entity.getId(),
@@ -27,6 +35,8 @@ public record TripResponse(
                 entity.getEndDate(),
                 entity.isSample(),
                 entity.getDescription(),
+                entity.getTotalBudget(),
+                entity.getUserId(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt()
         );

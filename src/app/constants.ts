@@ -1,11 +1,11 @@
 /**
- * Core application constants and metadata for ALTravel.
+ * Core application constants and metadata for TripSync.
  */
 export const APP_CONFIG = {
-  name: 'ALTravel',
-  tagline: 'When travel goes wrong, find your next best move.',
-  milestone: 'Milestone 1: Project Foundation',
-  version: '0.1.0',
+  name: 'TripSync',
+  tagline: 'When group travel changes, keep every balance & preference in sync.',
+  milestone: 'TripSync v2.0: Group Consensus & Recalculation',
+  version: '2.0.0',
   defaultCurrency: 'INR',
   supportedCurrencies: ['INR', 'USD', 'EUR', 'GBP'] as const,
   storageVersion: 'v1',

@@ -3,6 +3,7 @@ import { Trip } from '../../domain/trips/trip.types';
 import { Booking } from '../../domain/bookings/booking.types';
 import { BookingItem } from './BookingItem';
 import { CreateBookingModal } from './CreateBookingModal';
+import { MemberManagementModal } from './MemberManagementModal';
 import { RecoveryPlannerView } from '../recovery/RecoveryPlannerView';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -21,6 +22,7 @@ import {
   Building,
   Compass,
   Users,
+  Settings2,
 } from 'lucide-react';
 
 
@@ -38,6 +40,7 @@ export const TripDetailView: React.FC<TripDetailViewProps> = ({
   onDeleteTrip,
 }) => {
   const [isAddBookingOpen, setIsAddBookingOpen] = useState(false);
+  const [isMemberManagementOpen, setIsMemberManagementOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<'bookings' | 'recovery'>('bookings');
 
   // Chronologically sort bookings by start time
@@ -160,7 +163,7 @@ export const TripDetailView: React.FC<TripDetailViewProps> = ({
       {/* Simulated disclaimer alert for demo trip */}
       {trip.isSample && (
         <Alert variant="warning" title="Simulated Architectural Demonstration Data">
-          This itinerary demonstrates how ALTravel models connected travel segments. All flight numbers, schedules, resort policies, and scuba activity fees are synthetic fixtures. No real bookings or reservations were made or queried.
+          This itinerary demonstrates how TripSync models connected travel segments. All flight numbers, schedules, resort policies, and scuba activity fees are synthetic fixtures. No real bookings or reservations were made or queried.
         </Alert>
       )}
 
@@ -249,7 +252,7 @@ export const TripDetailView: React.FC<TripDetailViewProps> = ({
           {/* Trip Members & Personalised Profiles */}
           {trip.members && trip.members.length > 0 && (
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <h2 className="text-base font-bold text-foreground tracking-tight flex items-center gap-2">
                     <Users className="w-4 h-4 text-indigo-500" />
@@ -259,6 +262,14 @@ export const TripDetailView: React.FC<TripDetailViewProps> = ({
                     Personalized preferences and budget ceilings for each group member.
                   </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setIsMemberManagementOpen(true)}
+                  className="py-1.5 px-3 rounded-xl text-xs font-bold bg-secondary text-foreground hover:bg-secondary/80 flex items-center gap-1.5 transition-colors self-start sm:self-auto cursor-pointer"
+                >
+                  <Settings2 className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>Manage Travelers</span>
+                </button>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -358,6 +369,14 @@ export const TripDetailView: React.FC<TripDetailViewProps> = ({
         tripId={trip.id}
         onClose={() => setIsAddBookingOpen(false)}
         onBookingCreated={handleAddBooking}
+      />
+
+      {/* Member Management Modal Dialog */}
+      <MemberManagementModal
+        isOpen={isMemberManagementOpen}
+        onClose={() => setIsMemberManagementOpen(false)}
+        trip={trip}
+        onUpdateTrip={onUpdateTrip}
       />
     </div>
   );

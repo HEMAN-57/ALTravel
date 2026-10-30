@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -34,7 +34,7 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
   const [confirmationReference, setConfirmationReference] = useState('');
   const [formErrors, setFormErrors] = useState<string[]>([]);
 
-  const resetForm = () => {
+  const resetForm = useCallback(() => {
     setType('flight');
     setProvider('');
     setLocation('');
@@ -49,12 +49,12 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
     setNotes('');
     setConfirmationReference('');
     setFormErrors([]);
-  };
+  }, []);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     resetForm();
     onClose();
-  };
+  }, [resetForm, onClose]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

@@ -27,6 +27,12 @@ public record UpdateTripRequest(
 
         Boolean isSample,
 
-        String description
+        String description,
+
+        java.math.BigDecimal totalBudget
 ) {
+    public UpdateTripRequest(String name, String origin, String destination,
+                             LocalDate startDate, LocalDate endDate, Boolean isSample, String description) {
+        this(name, origin, destination, startDate, endDate, isSample, description, null);
+    }
 }

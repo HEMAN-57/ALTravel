@@ -61,6 +61,12 @@ public class TripEntity {
     @Column(name = "is_sample", nullable = false)
     private boolean isSample = false;
 
+    @Column(name = "user_id", length = 64)
+    private String userId;
+
+    @Column(name = "total_budget")
+    private java.math.BigDecimal totalBudget;
+
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
@@ -224,6 +230,22 @@ public class TripEntity {
 
     public List<BookingDependencyEntity> getDependencies() {
         return Collections.unmodifiableList(dependencies);
+    }
+
+    public String getUserId() {
+        return userId;
+    }
+
+    public void setUserId(String userId) {
+        this.userId = userId;
+    }
+
+    public java.math.BigDecimal getTotalBudget() {
+        return totalBudget;
+    }
+
+    public void setTotalBudget(java.math.BigDecimal totalBudget) {
+        this.totalBudget = totalBudget;
     }
 
     @Override

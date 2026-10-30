@@ -28,9 +28,9 @@ class FlywayMigrationIntegrationTest extends PostgresIntegrationTestBase {
     void flywayMigrationApplied() {
         MigrationInfo current = flyway.info().current();
         assertThat(current).isNotNull();
-        assertThat(current.getVersion().getVersion()).isEqualTo("2");
+        assertThat(current.getVersion().getVersion()).isEqualTo("4");
         assertThat(current.getState().isApplied()).isTrue();
-        assertThat(flyway.info().applied()).hasSize(2);
+        assertThat(flyway.info().applied()).hasSize(4);
     }
 
     @Test
@@ -44,6 +44,10 @@ class FlywayMigrationIntegrationTest extends PostgresIntegrationTestBase {
             }
         }
 
-        assertThat(tableNames).contains("trips", "bookings", "booking_dependencies");
+        assertThat(tableNames).contains(
+                "trips", "bookings", "booking_dependencies",
+                "users", "user_profiles", "trip_members", "expenses",
+                "expense_participants", "settlements", "trip_alerts"
+        );
     }
 }

@@ -15,6 +15,7 @@ export interface Trip {
   bookings: Booking[];
   dependencies?: BookingDependency[]; // Explicit dependency graph between bookings
   isSample?: boolean; // Visible indicator for simulated demo itineraries
+  userId?: string; // Associated user identity for account ownership
   description?: string;
   createdAt: string; // ISO 8601 timestamp
   updatedAt: string; // ISO 8601 timestamp

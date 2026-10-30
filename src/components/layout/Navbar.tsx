@@ -1,8 +1,21 @@
 import React, { useState } from 'react';
 import { Button } from '../ui/Button';
-import { Compass, Plus, Menu, X, RotateCcw, AlertTriangle } from 'lucide-react';
+import {
+  Compass,
+  Plus,
+  Menu,
+  X,
+  RotateCcw,
+  AlertTriangle,
+  User,
+  LogIn,
+  LogOut,
+  UserPlus,
+  ChevronDown,
+} from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Modal } from '../ui/Modal';
+import { useAuth } from '../../domain/auth/auth.context';
 
 export type NavTab =
   | 'dashboard'
@@ -11,7 +24,11 @@ export type NavTab =
   | 'recalculation'
   | 'consensus'
   | 'alerts'
-  | 'recovery';
+  | 'recovery'
+  | 'profile'
+  | 'login'
+  | 'signup'
+  | 'wizard';
 
 export interface NavbarProps {
   activeTab: NavTab;
@@ -28,12 +45,15 @@ export const Navbar: React.FC<NavbarProps> = ({
   onResetStorage,
   tripCount,
 }) => {
+  const { user, isAuthenticated, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
 
   const handleNavClick = (tab: NavTab) => {
     onTabChange(tab);
     setMobileMenuOpen(false);
+    setIsProfileMenuOpen(false);
   };
 
   const confirmReset = () => {
@@ -175,13 +195,13 @@ export const Navbar: React.FC<NavbarProps> = ({
 
 
           {/* Desktop Actions */}
-          <div className="hidden md:flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-2.5">
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setIsResetConfirmOpen(true)}
               className="text-muted-foreground hover:text-destructive text-xs"
-              title="Reset ALTravel demo and stored trips"
+              title="Reset TripSync demo and stored trips"
             >
               <RotateCcw className="w-3.5 h-3.5 mr-1" />
               Reset Data
@@ -191,11 +211,77 @@ export const Navbar: React.FC<NavbarProps> = ({
               variant="primary"
               size="sm"
               onClick={onCreateTrip}
-              className="shadow-sm font-semibold"
+              className="shadow-xs font-semibold"
             >
               <Plus className="w-4 h-4 mr-1.5" />
               New Trip
             </Button>
+
+            {/* Auth Profile Dropdown or Login/Signup */}
+            {isAuthenticated && user ? (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+                  className="flex items-center gap-2 p-1.5 pl-2.5 rounded-xl border border-border bg-card hover:bg-accent transition-colors cursor-pointer"
+                >
+                  <div className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs">
+                    {user.fullName ? user.fullName.charAt(0).toUpperCase() : 'U'}
+                  </div>
+                  <span className="text-xs font-bold text-foreground max-w-[110px] truncate">
+                    {user.fullName || user.email}
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+                </button>
+
+                {isProfileMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-48 bg-card border border-border rounded-xl shadow-xl py-1 z-50 animate-in fade-in zoom-in-95 duration-100">
+                    <div className="px-3 py-2 border-b border-border text-xs">
+                      <p className="font-bold text-foreground truncate">{user.fullName}</p>
+                      <p className="text-[10px] text-muted-foreground truncate">{user.email}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleNavClick('profile')}
+                      className="w-full text-left px-3 py-2 text-xs font-medium text-foreground hover:bg-accent flex items-center gap-2 cursor-pointer"
+                    >
+                      <User className="w-3.5 h-3.5 text-indigo-500" />
+                      <span>My Profile</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await logout();
+                        handleNavClick('dashboard');
+                      }}
+                      className="w-full text-left px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/10 flex items-center gap-2 border-t border-border cursor-pointer"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Log Out</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 ml-1">
+                <button
+                  type="button"
+                  onClick={() => handleNavClick('login')}
+                  className="py-1.5 px-3 rounded-lg text-xs font-bold text-foreground hover:bg-accent transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <LogIn className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>Log In</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleNavClick('signup')}
+                  className="py-1.5 px-3 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>Sign Up</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Mobile menu button */}
@@ -315,7 +401,53 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
 
 
-          <div className="pt-2 border-t border-border/60">
+          {/* Mobile Auth actions */}
+          <div className="pt-2 border-t border-border/60 space-y-1">
+            {isAuthenticated && user ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleNavClick('profile')}
+                  className="w-full text-left px-3 py-2 text-xs font-semibold text-foreground hover:bg-accent flex items-center gap-2 rounded-lg"
+                >
+                  <User className="w-4 h-4 text-indigo-500" />
+                  <span>My Profile ({user.fullName})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await logout();
+                    handleNavClick('dashboard');
+                  }}
+                  className="w-full text-left px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/10 flex items-center gap-2 rounded-lg"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Log Out</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleNavClick('login')}
+                  className="w-full text-left px-3 py-2 text-xs font-semibold text-foreground hover:bg-accent flex items-center gap-2 rounded-lg"
+                >
+                  <LogIn className="w-4 h-4 text-indigo-500" />
+                  <span>Log In</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleNavClick('signup')}
+                  className="w-full text-left px-3 py-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10 flex items-center gap-2 rounded-lg"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>Sign Up</span>
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className="pt-1 border-t border-border/60">
             <button
               type="button"
               onClick={() => {
@@ -336,14 +468,14 @@ export const Navbar: React.FC<NavbarProps> = ({
         isOpen={isResetConfirmOpen}
         onClose={() => setIsResetConfirmOpen(false)}
         title="Reset Local Trip Storage?"
-        description="This will clear all ALTravel stored trips and sample data from your browser."
+        description="This will clear all TripSync stored trips and sample data from your browser."
         maxWidth="sm"
       >
         <div className="space-y-4">
           <div className="flex items-start gap-3 p-3 bg-amber-500/10 text-amber-800 dark:text-amber-200 rounded-lg text-xs leading-relaxed border border-amber-500/20">
             <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600 mt-0.5" />
             <p>
-              Only ALTravel application data will be cleared. Other browser storage and unrelated domains will remain untouched.
+              Only TripSync application data will be cleared. Other browser storage and unrelated domains will remain untouched.
             </p>
           </div>
 

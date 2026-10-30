@@ -1,22 +1,37 @@
-# ALTravel Backend — REST API & Persistence Layer
+# TripSync Backend — REST API & Persistence Layer
 
-Java 21, Spring Boot 3.3.5, Spring Data JPA, Flyway, and PostgreSQL 16 backend for **ALTravel** (Travel Disruption Recovery and Traveler Protection).
+Java 21, Spring Boot 3.3.5, Spring Data JPA, Spring Security 6, Flyway, and PostgreSQL 16 backend for **TripSync** (Intelligent Group Travel Planning and Expense Management).
 
 ## Technology Stack
 
 - **Runtime:** Java 21 (LTS)
-- **Framework:** Spring Boot 3.3.5 (Spring Web, Spring Data JPA, Jakarta Bean Validation, Spring Boot Actuator)
+- **Framework:** Spring Boot 3.3.5 (Spring Web, Spring Data JPA, Spring Security 6, Jakarta Bean Validation, Spring Boot Actuator)
 - **Database:** PostgreSQL 16
 - **Schema Migrations:** Flyway (with `flyway-database-postgresql`)
 - **Validation:** Hibernate Validator 8 / Jakarta Bean Validation
-- **Testing:** JUnit 5, AssertJ, Spring Boot Test, MockMvc, and Testcontainers PostgreSQL 16
+- **Testing:** JUnit 5, AssertJ, Spring Boot Test, MockMvc, and Testcontainers PostgreSQL 16 (63 tests)
 - **Build Tool:** Apache Maven Wrapper (`./mvnw`)
 
 ---
 
 ## 1. Quick Start with PostgreSQL
 
-### Option A: Local Docker Compose (Recommended)
+### Option A: Native PostgreSQL Instance (Tested Baseline)
+
+If running PostgreSQL 16 natively via Homebrew or Linux package manager:
+
+```bash
+# 1. Start PostgreSQL service
+brew services start postgresql@16
+
+# 2. Create database and user (one-time setup)
+psql -U postgres -c "CREATE USER altravel WITH PASSWORD 'altravel_dev_password' SUPERUSER;"
+psql -U postgres -c "CREATE DATABASE altravel OWNER altravel;"
+```
+
+Data is stored in the local filesystem (`/opt/homebrew/var/postgresql@16`) and persists across machine reboots.
+
+### Option B: Local Docker Compose
 
 From the project root:
 
@@ -24,24 +39,15 @@ From the project root:
 # 1. Review environment configuration
 cp .env.example .env
 
-# 2. Start PostgreSQL container in background
+# 2. Start PostgreSQL container in background with named persistent volume
 docker compose up -d
 
 # 3. Verify health status
 docker compose ps
 ```
 
-The database container runs on `localhost:5432` with database `altravel`, user `altravel`, and password `altravel_dev_password` (or values defined in `.env`).
-
-### Option B: Existing PostgreSQL Instance
-
-If you already have PostgreSQL 16 running locally, create the database:
-
-```sql
-CREATE DATABASE altravel;
-CREATE USER altravel WITH ENCRYPTED PASSWORD 'altravel_dev_password';
-GRANT ALL PRIVILEGES ON DATABASE altravel TO altravel;
-```
+The database container runs on `localhost:5432` with database `altravel`, user `altravel`, and password `altravel_dev_password`.
+> **Volume Persistence Warning:** `compose.yaml` uses a named Docker volume `altravel_postgres_data`. Standard `docker compose down` preserves this volume. **Do NOT run `docker compose down -v`**, as `-v` permanently deletes the volume and database records.
 
 ---
 
@@ -55,6 +61,9 @@ The backend application is configured via `src/main/resources/application.yml` a
 | `SPRING_DATASOURCE_USERNAME` | `altravel` | Database user |
 | `SPRING_DATASOURCE_PASSWORD` | `altravel_dev_password` | Database password |
 | `SERVER_PORT` | `8080` | HTTP server port |
+| `JWT_SECRET` | `404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970` | 256-bit HMAC-SHA signing secret for JWT access tokens |
+| `JWT_EXPIRATION_MS` | `86400000` | Token expiration duration in milliseconds (default 24h) |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173` | Allowed CORS origins for the React client |
 
 ---
 
@@ -67,9 +76,40 @@ Flyway serves as the single source of truth for the relational schema. Hibernate
 1. `V1__initial_schema.sql`: Durable schema foundation:
    - `trips`: Itinerary records with start/end dates and check constraints (`end_date >= start_date`).
    - `bookings`: Transport, hotel, and activity records with monetary amounts (`NUMERIC(12,2)`), non-negative cost constraints, and nullable optional timing.
-   - `booking_dependencies`: Directed dependency graph links between bookings with composite foreign keys `(upstream_booking_id, trip_id)` and `(downstream_booking_id, trip_id)` referencing `bookings(id, trip_id)` to enforce trip ownership at the database engine level.
+   - `booking_dependencies`: Directed dependency graph links between bookings with composite foreign keys referencing `bookings(id, trip_id)` to enforce trip ownership at the database engine level.
 2. `V2__unique_dependency_pair.sql`:
    - Adds unique constraint `uq_dep_pair UNIQUE (trip_id, upstream_booking_id, downstream_booking_id)` to guarantee duplicate dependency edges are rejected at the database level.
+3. `V3__user_accounts_and_auth.sql`:
+   - `users`: User identity table with `id`, `email` (unique index), `password_hash` (BCrypt), `full_name`, `role`, `enabled`, and timestamps.
+   - `user_profiles`: Preferences and currency settings table with `id`, `user_id` FK (cascade delete), `preferred_currency`, `cost_sensitivity`, `preferred_pace`, `primary_priority`, `willingness_to_pay_speed`.
+   - Links `trips.user_id` FK to `users(id)` with index for fast ownership queries.
+4. `V4__tripsync_group_ledger_and_entities.sql`:
+   - Adds `total_budget NUMERIC(12,2)` to `trips` and `participant_ids TEXT[]` to `bookings`.
+   - `trip_members`: Group members table with role, status, personal budget, JSONB travel preferences.
+   - `expenses` & `expense_participants`: Relational financial expense ledger and participation weights.
+   - `settlements`: Peer-to-peer debt settlements and status.
+   - `trip_alerts`: System notifications and risk warnings.
+
+---
+
+## 4. Authentication & Security Architecture
+
+- **Spring Security 6:** Stateless `SessionCreationPolicy.STATELESS` filter chain.
+- **JWT (JJWT 0.12.6):** HMAC-SHA256 tokens carrying `sub` (user email), `userId`, `role`, and expiration.
+- **BCrypt:** Secure password hashing (10 rounds) with salt; plaintext passwords are never logged or stored.
+- **Ownership Enforcement:** Authenticated identity is derived directly from the Spring `SecurityContextHolder`. Users can only mutate trips they own or have permission to access.
+- **Public Endpoints:** `/api/auth/**`, `/api/demo/**`, `/actuator/health`.
+- **Protected Endpoints:** `/api/users/**`, `/api/v1/trips/**`.
+
+### Authentication REST Endpoints
+
+- `POST /api/auth/register`: Register account (`fullName`, `email`, `password`, `confirmPassword`, `termsAccepted`). Returns JWT token, user summary, and initial profile.
+- `POST /api/auth/login`: Authenticate (`email`, `password`, `rememberMe`). Returns JWT token, user summary, and profile.
+- `POST /api/auth/logout`: Invalidate session and clear client state.
+- `POST /api/auth/forgot-password`: Future integration boundary for password recovery.
+- `GET /api/users/me`: Retrieve currently authenticated user summary.
+- `GET /api/users/profile`: Retrieve travel profile and preferences.
+- `PUT /api/users/profile`: Update travel profile and default preferences.
 
 ---
 

@@ -50,7 +50,7 @@ export function recalculateBookingCancellation(
     ? targetBooking.participantMemberIds
     : activeMembers.map((m) => m.id);
 
-  // Check refundability deterministically via ALTravel policy classifier
+  // Check refundability deterministically via TripSync policy classifier
   const evalTime = evaluationReferenceTime || targetBooking.startTime || new Date().toISOString();
   const refundInfo = classifyBookingRefundability(targetBooking, evalTime);
 

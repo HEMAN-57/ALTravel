@@ -130,6 +130,7 @@ export function validateTrip(input: unknown): ValidationResult<Trip> {
       ? (candidate.financialSnapshots as Trip['financialSnapshots'])
       : undefined,
     totalBudget: typeof candidate.totalBudget === 'number' ? candidate.totalBudget : undefined,
+    userId: typeof candidate.userId === 'string' ? candidate.userId : undefined,
   };
 
   return { success: true, data: trip, errors: [] };

@@ -4,6 +4,7 @@ import {
   saveTrips,
   upsertTrip,
   deleteTrip,
+  resetTripSyncStorage,
   resetALTravelStorage,
   loadSampleTrip,
   getActiveTripId,
@@ -121,14 +122,24 @@ describe('Storage Layer (localStorage persistence)', () => {
     expect(window.localStorage.getItem('unrelated_data')).toBe('keep_me');
   });
 
-  it('resets only ALTravel storage keys without wiping unrelated storage keys', () => {
+  it('resets only TripSync storage keys without wiping unrelated storage keys', () => {
+    window.localStorage.setItem('unrelated_user_pref', 'dark_theme');
+    loadSampleTrip();
+
+    resetTripSyncStorage();
+    expect(loadTrips()).toHaveLength(0);
+    expect(getActiveTripId()).toBeNull();
+    // Unrelated storage must remain intact
+    expect(window.localStorage.getItem('unrelated_user_pref')).toBe('dark_theme');
+  });
+
+  it('supports legacy resetALTravelStorage alias', () => {
     window.localStorage.setItem('unrelated_user_pref', 'dark_theme');
     loadSampleTrip();
 
     resetALTravelStorage();
     expect(loadTrips()).toHaveLength(0);
     expect(getActiveTripId()).toBeNull();
-    // Unrelated storage must remain intact
     expect(window.localStorage.getItem('unrelated_user_pref')).toBe('dark_theme');
   });
 

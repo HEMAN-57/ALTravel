@@ -5,7 +5,7 @@ import {
   upsertTrip,
   deleteTrip,
   loadSampleTrip,
-  resetALTravelStorage,
+  resetTripSyncStorage,
   getActiveTripId,
   setActiveTripId,
 } from './lib/storage';
@@ -20,11 +20,16 @@ import { GroupLedgerView } from './features/ledger/GroupLedgerView';
 import { ChangeAwareRecalculationView } from './features/recalculation/ChangeAwareRecalculationView';
 import { GroupConsensusView } from './features/consensus/GroupConsensusView';
 import { AlertsCenterView } from './features/alerts/AlertsCenterView';
-import { SAMPLE_TRIP } from './lib/demo-data';
+import { SAMPLE_TRIP, DEMO_TRIP_ID } from './lib/demo-data';
 import { Button } from './components/ui/Button';
 import { Card, CardContent } from './components/ui/Card';
 import { Alert } from './components/ui/Alert';
 import { formatCurrency } from './lib/utils';
+import { AuthProvider, useAuth } from './domain/auth/auth.context';
+import { LoginView } from './features/auth/LoginView';
+import { SignupView } from './features/auth/SignupView';
+import { UserProfileView } from './features/auth/UserProfileView';
+import { TripWizardView } from './features/trips/TripWizardView';
 import {
   Compass,
   Sparkles,
@@ -38,10 +43,10 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
-
-
-export const App: React.FC = () => {
-  const [trips, setTrips] = useState<Trip[]>([]);
+const AppContent: React.FC = () => {
+  const { user, isAuthenticated } = useAuth();
+  const [personalTrips, setPersonalTrips] = useState<Trip[]>([]);
+  const [demoTrip, setDemoTrip] = useState<Trip | null>(null);
   const [selectedTripId, setSelectedTripIdState] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [isCreateTripOpen, setIsCreateTripOpen] = useState(false);
@@ -50,22 +55,42 @@ export const App: React.FC = () => {
     message: string;
   } | null>(null);
 
-  // Initialize trips and selected trip from localStorage on mount
+  // Synchronize trip state strictly based on authentication boundaries
   useEffect(() => {
-    const stored = loadTrips();
-    setTrips(stored);
-    const activeId = getActiveTripId();
-    if (activeId && stored.some((t) => t.id === activeId)) {
-      setSelectedTripIdState(activeId);
-    } else if (stored.length > 0) {
-      setSelectedTripIdState(stored[0]?.id ?? null);
+    if (isAuthenticated && user?.id) {
+      const stored = loadTrips(user.id);
+      setPersonalTrips(stored);
+      const activeId = getActiveTripId(user.id);
+      if (activeId === DEMO_TRIP_ID) {
+        setSelectedTripIdState(DEMO_TRIP_ID);
+        setDemoTrip(SAMPLE_TRIP);
+      } else if (activeId && stored.some((t) => t.id === activeId)) {
+        setSelectedTripIdState(activeId);
+      } else if (stored.length > 0) {
+        setSelectedTripIdState(stored[0]?.id ?? null);
+      } else {
+        setSelectedTripIdState(null);
+      }
+    } else {
+      // Guest mode: strictly zero personal trips loaded from storage
+      setPersonalTrips([]);
+      const guestActiveId = getActiveTripId(null);
+      if (guestActiveId === DEMO_TRIP_ID) {
+        setDemoTrip(SAMPLE_TRIP);
+        setSelectedTripIdState(DEMO_TRIP_ID);
+      } else {
+        setSelectedTripIdState(null);
+      }
     }
-  }, []);
+  }, [isAuthenticated, user?.id]);
 
-  // Sync selected trip ID with localStorage
+  // Sync selected trip ID with user-scoped storage
   const handleSelectTrip = (id: string | null) => {
     setSelectedTripIdState(id);
-    setActiveTripId(id);
+    setActiveTripId(id, isAuthenticated && user?.id ? user.id : null);
+    if (id === DEMO_TRIP_ID) {
+      setDemoTrip(SAMPLE_TRIP);
+    }
   };
 
   const showNotification = (
@@ -80,84 +105,114 @@ export const App: React.FC = () => {
 
   // Actions
   const handleLoadSampleTrip = () => {
-    const result = loadSampleTrip();
+    const result = loadSampleTrip(isAuthenticated && user?.id ? user.id : undefined);
     if (!result.success) {
       showNotification('Failed to persist sample trip to localStorage.', 'destructive');
-      setTrips(loadTrips());
       return;
     }
-    const updatedList = loadTrips();
-    setTrips(updatedList);
-    handleSelectTrip(result.trip.id);
+    setDemoTrip(SAMPLE_TRIP);
+    handleSelectTrip(DEMO_TRIP_ID);
     showNotification('Sample trip (Hyderabad → Goa) loaded into localStorage.', 'info');
   };
 
   const handleTripCreated = (newTrip: Trip) => {
-    const success = upsertTrip(newTrip);
+    if (isAuthenticated && user?.id) {
+      newTrip.userId = user.id;
+    }
+    const effectiveUserId = isAuthenticated && user?.id ? user.id : undefined;
+    const success = upsertTrip(newTrip, effectiveUserId);
     if (!success) {
       showNotification(`Failed to save trip "${newTrip.name}". Storage write unsuccessful.`, 'destructive');
-      setTrips(loadTrips());
       return;
     }
-    const updatedList = loadTrips();
-    setTrips(updatedList);
+    if (effectiveUserId) {
+      const updatedList = loadTrips(effectiveUserId);
+      setPersonalTrips(updatedList);
+    } else {
+      setPersonalTrips([newTrip]);
+    }
     handleSelectTrip(newTrip.id);
     setActiveTab('trips');
     showNotification(`Trip "${newTrip.name}" created successfully.`);
   };
 
   const handleUpdateTrip = (updated: Trip) => {
-    const success = upsertTrip(updated);
-    if (!success) {
-      showNotification(`Failed to update trip "${updated.name}". Changes were not saved.`, 'destructive');
-      setTrips(loadTrips());
+    if (updated.id === DEMO_TRIP_ID || updated.isSample) {
+      setDemoTrip(updated);
+      const effectiveUserId = isAuthenticated && user?.id ? user.id : undefined;
+      upsertTrip(updated, effectiveUserId);
+      showNotification('Simulated demo itinerary updated.');
       return;
     }
-    setTrips(loadTrips());
-    showNotification('Trip itinerary updated.');
+    if (isAuthenticated && user?.id) {
+      upsertTrip(updated, user.id);
+      setPersonalTrips(loadTrips(user.id));
+      showNotification('Trip itinerary updated.');
+    } else {
+      setPersonalTrips((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+      showNotification('Trip itinerary updated.');
+    }
   };
 
   const handleDeleteTrip = (tripId: string) => {
-    const tripToDelete = trips.find((t) => t.id === tripId);
-    const success = deleteTrip(tripId);
+    const tripToDelete = personalTrips.find((t) => t.id === tripId) || (demoTrip?.id === tripId ? demoTrip : null);
+    const effectiveUserId = isAuthenticated && user?.id ? user.id : undefined;
+    const success = deleteTrip(tripId, effectiveUserId);
     if (!success) {
       showNotification(`Failed to delete trip "${tripToDelete?.name || ''}".`, 'destructive');
-      setTrips(loadTrips());
       return;
     }
-    const updated = loadTrips();
-    setTrips(updated);
-
+    if (tripId === DEMO_TRIP_ID) {
+      setDemoTrip(null);
+    }
+    if (effectiveUserId) {
+      const updated = loadTrips(effectiveUserId);
+      setPersonalTrips(updated);
+    } else {
+      setPersonalTrips((prev) => prev.filter((t) => t.id !== tripId));
+    }
     if (selectedTripId === tripId) {
-      handleSelectTrip(updated[0]?.id ?? null);
+      handleSelectTrip(null);
     }
     showNotification(`Trip "${tripToDelete?.name || ''}" removed from storage.`, 'warning');
   };
 
   const handleResetStorage = () => {
-    resetALTravelStorage();
-    setTrips([]);
+    resetTripSyncStorage();
+    setPersonalTrips([]);
+    setDemoTrip(null);
     handleSelectTrip(null);
     setActiveTab('dashboard');
-    showNotification('ALTravel trip storage has been cleared.', 'info');
+    showNotification('TripSync storage has been reset.', 'info');
   };
 
-  const activeTrip = trips.find((t) => t.id === selectedTripId) || null;
+  // Active trip resolution
+  const activeTrip: Trip | null =
+    selectedTripId === DEMO_TRIP_ID
+      ? (demoTrip || SAMPLE_TRIP)
+      : (personalTrips.find((t) => t.id === selectedTripId) || (demoTrip || (personalTrips[0] ?? null)));
 
-  // Aggregate stats across all trips
-  const totalBookingsCount = trips.reduce((sum, t) => sum + t.bookings.length, 0);
-  const totalEstimatedSpend = trips.reduce(
-    (sum, t) => sum + t.bookings.reduce((bSum, b) => bSum + (b.cost || 0), 0),
-    0
-  );
+  // User-specific statistics (strictly isolated: personal trips only when authenticated)
+  const totalBookingsCount = isAuthenticated
+    ? personalTrips.reduce((sum, t) => sum + t.bookings.length, 0)
+    : 0;
+
+  const totalEstimatedSpend = isAuthenticated
+    ? personalTrips.reduce(
+        (sum, t) => sum + t.bookings.reduce((bSum, b) => bSum + (b.cost || 0), 0),
+        0
+      )
+    : 0;
+
+  const allAvailableTrips = demoTrip ? [...personalTrips, demoTrip] : personalTrips;
 
   return (
     <AppShell
       activeTab={activeTab}
       onTabChange={setActiveTab}
-      onCreateTrip={() => setIsCreateTripOpen(true)}
+      onCreateTrip={() => (isAuthenticated ? setIsCreateTripOpen(true) : setActiveTab('login'))}
       onResetStorage={handleResetStorage}
-      tripCount={trips.length}
+      tripCount={isAuthenticated ? personalTrips.length : 0}
     >
       {/* Toast Notification Banner */}
       {notification && (
@@ -199,13 +254,22 @@ export const App: React.FC = () => {
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={() => setActiveTab('wizard')}
+                  className="bg-indigo-600/30 text-white border-indigo-400/40 hover:bg-indigo-600/50 font-semibold"
+                >
+                  <Sparkles className="w-4 h-4 mr-1.5 text-indigo-300" />
+                  Custom Trip Wizard
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={handleLoadSampleTrip}
                   className="bg-white/10 text-white border-white/20 hover:bg-white/20 font-semibold"
                 >
                   <Sparkles className="w-4 h-4 mr-1.5 text-amber-300" />
                   Load Sample Trip (4-Member Goa Demo)
                 </Button>
-
 
                 <Button
                   variant="outline"
@@ -239,8 +303,7 @@ export const App: React.FC = () => {
               </div>
             </div>
 
-
-            {/* Subtle decorative background compass ring */}
+            {/* Decorative background compass ring */}
             <div className="absolute -right-8 -bottom-12 opacity-10 pointer-events-none">
               <Compass className="w-72 h-72 text-white" />
             </div>
@@ -254,8 +317,10 @@ export const App: React.FC = () => {
                   <Calendar className="w-5 h-5" />
                 </div>
                 <div>
-                  <span className="text-xs text-muted-foreground font-medium block">Total Trips</span>
-                  <span className="text-xl font-bold text-foreground">{trips.length}</span>
+                  <span className="text-xs text-muted-foreground font-medium block">Personal Trips</span>
+                  <span className="text-xl font-bold text-foreground">
+                    {isAuthenticated ? personalTrips.length : 0}
+                  </span>
                 </div>
               </CardContent>
             </Card>
@@ -292,9 +357,9 @@ export const App: React.FC = () => {
                   <HardDrive className="w-5 h-5" />
                 </div>
                 <div>
-                  <span className="text-xs text-muted-foreground font-medium block">Persistence Engine</span>
+                  <span className="text-xs text-muted-foreground font-medium block">Session Mode</span>
                   <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-                    localStorage (Active)
+                    {isAuthenticated ? `Account (${user?.email ?? 'Active'})` : 'Guest (Unauthenticated)'}
                   </span>
                 </div>
               </CardContent>
@@ -306,14 +371,16 @@ export const App: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-bold text-foreground tracking-tight">
-                  Your Itineraries
+                  {isAuthenticated ? 'Your Personal Itineraries' : 'Itineraries & Demonstrations'}
                 </h2>
                 <p className="text-xs text-muted-foreground">
-                  Saved trips and simulated travel itineraries.
+                  {isAuthenticated
+                    ? 'Saved itineraries belonging exclusively to your account.'
+                    : 'Personal trips require sign in. Simulated demo is available below.'}
                 </p>
               </div>
 
-              {trips.length > 0 && (
+              {isAuthenticated && personalTrips.length > 0 && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -326,39 +393,124 @@ export const App: React.FC = () => {
               )}
             </div>
 
-            {trips.length === 0 ? (
-              <EmptyState
-                onLoadSample={handleLoadSampleTrip}
-                onCreateTrip={() => setIsCreateTripOpen(true)}
-              />
+            {!isAuthenticated ? (
+              <div className="space-y-4">
+                <EmptyState
+                  onLoadSample={handleLoadSampleTrip}
+                  onCreateTrip={() => setActiveTab('login')}
+                  isGuest={true}
+                />
+                {demoTrip && (
+                  <div className="pt-4 border-t border-border/60">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+                          <Sparkles className="w-3 h-3" />
+                          Simulated Demonstration (Active)
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          Simulated demo data — not saved to any personal account
+                        </span>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          handleSelectTrip(demoTrip.id);
+                          setActiveTab('trips');
+                        }}
+                        className="text-xs"
+                      >
+                        Open Demo Workspace
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <TripCard
+                        trip={demoTrip}
+                        onSelect={(id) => {
+                          handleSelectTrip(id);
+                          setActiveTab('trips');
+                        }}
+                        onDelete={handleDeleteTrip}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : personalTrips.length === 0 ? (
+              <div className="space-y-4">
+                <EmptyState
+                  onLoadSample={handleLoadSampleTrip}
+                  onCreateTrip={() => setIsCreateTripOpen(true)}
+                  isGuest={false}
+                />
+                {demoTrip && (
+                  <div className="pt-4 border-t border-border/60">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+                        <Sparkles className="w-3 h-3" />
+                        Simulated Demonstration (Separated from personal itineraries)
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <TripCard
+                        trip={demoTrip}
+                        onSelect={(id) => {
+                          handleSelectTrip(id);
+                          setActiveTab('trips');
+                        }}
+                        onDelete={handleDeleteTrip}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {trips.map((trip) => (
-                  <TripCard
-                    key={trip.id}
-                    trip={trip}
-                    onSelect={(id) => {
-                      handleSelectTrip(id);
-                      setActiveTab('trips');
-                    }}
-                    onDelete={handleDeleteTrip}
-                  />
-                ))}
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {personalTrips.map((trip) => (
+                    <TripCard
+                      key={trip.id}
+                      trip={trip}
+                      onSelect={(id) => {
+                        handleSelectTrip(id);
+                        setActiveTab('trips');
+                      }}
+                      onDelete={handleDeleteTrip}
+                    />
+                  ))}
+                </div>
+
+                {demoTrip && (
+                  <div className="pt-4 border-t border-border/60">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+                        <Sparkles className="w-3 h-3" />
+                        Simulated Demonstration (Separated from personal itineraries)
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <TripCard
+                        trip={demoTrip}
+                        onSelect={(id) => {
+                          handleSelectTrip(id);
+                          setActiveTab('trips');
+                        }}
+                        onDelete={handleDeleteTrip}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* MY TRIPS TAB */}
+      {/* MY TRIPS TAB (ITINERARY DETAILS) */}
       {activeTab === 'trips' && (
         <div className="space-y-6">
-          {trips.length === 0 ? (
-            <EmptyState
-              onLoadSample={handleLoadSampleTrip}
-              onCreateTrip={() => setIsCreateTripOpen(true)}
-            />
-          ) : activeTrip ? (
+          {activeTrip ? (
             <TripDetailView
               trip={activeTrip}
               onBack={() => handleSelectTrip(null)}
@@ -376,26 +528,36 @@ export const App: React.FC = () => {
                     Select an itinerary to inspect bookings, transit times, and cancellation deadlines.
                   </p>
                 </div>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => setIsCreateTripOpen(true)}
-                >
-                  <Plus className="w-4 h-4 mr-1.5" />
-                  New Trip
-                </Button>
+                {isAuthenticated && (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => setIsCreateTripOpen(true)}
+                  >
+                    <Plus className="w-4 h-4 mr-1.5" />
+                    New Trip
+                  </Button>
+                )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {trips.map((trip) => (
-                  <TripCard
-                    key={trip.id}
-                    trip={trip}
-                    onSelect={handleSelectTrip}
-                    onDelete={handleDeleteTrip}
-                  />
-                ))}
-              </div>
+              {allAvailableTrips.length === 0 ? (
+                <EmptyState
+                  onLoadSample={handleLoadSampleTrip}
+                  onCreateTrip={() => (isAuthenticated ? setIsCreateTripOpen(true) : setActiveTab('login'))}
+                  isGuest={!isAuthenticated}
+                />
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {allAvailableTrips.map((trip) => (
+                    <TripCard
+                      key={trip.id}
+                      trip={trip}
+                      onSelect={handleSelectTrip}
+                      onDelete={handleDeleteTrip}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -404,7 +566,7 @@ export const App: React.FC = () => {
       {/* GROUP LEDGER & SMART BUDGET TAB */}
       {activeTab === 'ledger' && (
         <GroupLedgerView
-          trip={activeTrip || trips[0] || SAMPLE_TRIP}
+          trip={activeTrip || SAMPLE_TRIP}
           onUpdateTrip={handleUpdateTrip}
         />
       )}
@@ -412,7 +574,7 @@ export const App: React.FC = () => {
       {/* CHANGE-AWARE FINANCIAL REPLANNING (USP) TAB */}
       {activeTab === 'recalculation' && (
         <ChangeAwareRecalculationView
-          trip={activeTrip || trips[0] || SAMPLE_TRIP}
+          trip={activeTrip || SAMPLE_TRIP}
           onUpdateTrip={handleUpdateTrip}
         />
       )}
@@ -420,35 +582,86 @@ export const App: React.FC = () => {
       {/* GROUP CONSENSUS ENGINE (X-FACTOR) TAB */}
       {activeTab === 'consensus' && (
         <GroupConsensusView
-          trip={activeTrip || trips[0] || SAMPLE_TRIP}
+          trip={activeTrip || SAMPLE_TRIP}
           onUpdateTrip={handleUpdateTrip}
         />
       )}
 
       {/* ALERTS & NOTIFICATIONS TAB */}
       {activeTab === 'alerts' && (
-        <AlertsCenterView trip={activeTrip || trips[0] || SAMPLE_TRIP} />
+        <AlertsCenterView trip={activeTrip || SAMPLE_TRIP} />
       )}
 
       {/* RECOVERY PLANNER TAB */}
       {activeTab === 'recovery' && (
         <RecoveryPlannerView
           activeTrip={activeTrip}
-          trips={trips}
+          trips={allAvailableTrips.length > 0 ? allAvailableTrips : [SAMPLE_TRIP]}
           onSelectTrip={handleSelectTrip}
           onLoadSample={handleLoadSampleTrip}
           onGoToBookings={() => setActiveTab('trips')}
         />
       )}
 
+      {/* USER PROFILE TAB */}
+      {activeTab === 'profile' && <UserProfileView />}
+
+      {/* LOGIN TAB */}
+      {activeTab === 'login' && (
+        <LoginView
+          onSuccess={() => {
+            setActiveTab('dashboard');
+            showNotification('Signed in successfully.');
+          }}
+          onNavigateToSignup={() => setActiveTab('signup')}
+          onExploreDemo={handleLoadSampleTrip}
+        />
+      )}
+
+      {/* SIGNUP TAB */}
+      {activeTab === 'signup' && (
+        <SignupView
+          onSuccess={() => {
+            setActiveTab('dashboard');
+            showNotification('Account created successfully. Welcome to TripSync!');
+          }}
+          onNavigateToLogin={() => setActiveTab('login')}
+          onExploreDemo={handleLoadSampleTrip}
+        />
+      )}
+
+      {/* CUSTOM TRIP CREATION WIZARD TAB */}
+      {activeTab === 'wizard' && (
+        <TripWizardView
+          onComplete={(newTrip) => {
+            handleTripCreated(newTrip);
+            handleSelectTrip(newTrip.id);
+            setActiveTab('trips');
+            showNotification(`Trip "${newTrip.name}" created with ${newTrip.members?.length || 0} travelers!`);
+          }}
+          onCancel={() => setActiveTab('dashboard')}
+        />
+      )}
 
       {/* Create Trip Modal */}
       <CreateTripModal
         isOpen={isCreateTripOpen}
         onClose={() => setIsCreateTripOpen(false)}
         onTripCreated={handleTripCreated}
+        onLaunchWizard={() => {
+          setIsCreateTripOpen(false);
+          setActiveTab('wizard');
+        }}
       />
     </AppShell>
+  );
+};
+
+export const App: React.FC = () => {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 };
 

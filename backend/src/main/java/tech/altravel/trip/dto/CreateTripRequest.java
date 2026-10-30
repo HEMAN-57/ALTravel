@@ -30,6 +30,14 @@ public record CreateTripRequest(
 
         Boolean isSample,
 
-        String description
+        String description,
+
+        java.math.BigDecimal totalBudget,
+
+        String userId
 ) {
+    public CreateTripRequest(String id, String name, String origin, String destination,
+                             LocalDate startDate, LocalDate endDate, Boolean isSample, String description) {
+        this(id, name, origin, destination, startDate, endDate, isSample, description, null, null);
+    }
 }

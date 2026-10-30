@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
@@ -9,12 +9,14 @@ export interface CreateTripModalProps {
   isOpen: boolean;
   onClose: () => void;
   onTripCreated: (trip: Trip) => void;
+  onLaunchWizard?: () => void;
 }
 
 export const CreateTripModal: React.FC<CreateTripModalProps> = ({
   isOpen,
   onClose,
   onTripCreated,
+  onLaunchWizard,
 }) => {
   const [name, setName] = useState('');
   const [origin, setOrigin] = useState('');
@@ -24,7 +26,7 @@ export const CreateTripModal: React.FC<CreateTripModalProps> = ({
   const [description, setDescription] = useState('');
   const [formErrors, setFormErrors] = useState<string[]>([]);
 
-  const resetForm = () => {
+  const resetForm = useCallback(() => {
     setName('');
     setOrigin('');
     setDestination('');
@@ -32,12 +34,12 @@ export const CreateTripModal: React.FC<CreateTripModalProps> = ({
     setEndDate('');
     setDescription('');
     setFormErrors([]);
-  };
+  }, []);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     resetForm();
     onClose();
-  };
+  }, [resetForm, onClose]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,6 +83,21 @@ export const CreateTripModal: React.FC<CreateTripModalProps> = ({
       maxWidth="md"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
+        {onLaunchWizard && (
+          <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-between gap-3 text-xs">
+            <div>
+              <span className="font-bold text-foreground block">Planning with multiple travelers?</span>
+              <span className="text-muted-foreground">Configure individual member budgets and preference weights.</span>
+            </div>
+            <button
+              type="button"
+              onClick={onLaunchWizard}
+              className="py-1.5 px-3 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700 transition-colors shrink-0 cursor-pointer"
+            >
+              Launch Wizard →
+            </button>
+          </div>
+        )}
         {formErrors.length > 0 && (
           <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-xs text-destructive space-y-1">
             <p className="font-semibold">Please resolve the following issues:</p>

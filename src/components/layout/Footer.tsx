@@ -13,10 +13,10 @@ export const Footer: React.FC = () => {
             </div>
             <div>
               <p className="font-semibold text-foreground">
-                ALTravel <span className="font-normal text-muted-foreground">— Milestone 1: Project Foundation</span>
+                TripSync <span className="font-normal text-muted-foreground">— Intelligent Group Travel &amp; Expense Management</span>
               </p>
               <p className="text-[11px] text-muted-foreground">
-                When travel goes wrong, find your next best move.
+                When group travel changes, keep every balance &amp; preference in sync.
               </p>
             </div>
           </div>
@@ -30,7 +30,7 @@ export const Footer: React.FC = () => {
           {/* Right Links */}
           <div className="flex items-center gap-4">
             <a
-              href="https://github.com/HEMAN-57/ALTravel"
+              href="https://github.com/HEMAN-57/TripSync"
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors font-medium"
