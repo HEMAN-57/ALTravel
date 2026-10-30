@@ -134,6 +134,11 @@ export const LoginView: React.FC<LoginViewProps> = ({
               <LogIn className="w-4 h-4" />
               {isLoading ? 'Authenticating...' : 'Sign In'}
             </button>
+            {isLoading && (
+              <p className="text-[11px] text-center text-muted-foreground animate-pulse">
+                Connecting to cloud server... If waking from sleep, please allow a moment.
+              </p>
+            )}
           </form>
 
           <div className="pt-2 border-t border-border/60 text-center space-y-3">

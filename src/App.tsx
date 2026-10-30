@@ -25,6 +25,7 @@ import { Button } from './components/ui/Button';
 import { Card, CardContent } from './components/ui/Card';
 import { Alert } from './components/ui/Alert';
 import { formatCurrency } from './lib/utils';
+import { apiClient } from './lib/api-client';
 import { AuthProvider, useAuth } from './domain/auth/auth.context';
 import { LoginView } from './features/auth/LoginView';
 import { SignupView } from './features/auth/SignupView';
@@ -54,6 +55,11 @@ const AppContent: React.FC = () => {
     variant: 'success' | 'info' | 'warning' | 'destructive';
     message: string;
   } | null>(null);
+
+  // Proactively ping backend health on initial load to awaken sleeping free cloud instances
+  useEffect(() => {
+    apiClient.pingHealth().catch(() => {});
+  }, []);
 
   // Synchronize trip state strictly based on authentication boundaries
   useEffect(() => {

@@ -1,0 +1,52 @@
+# Render Blueprint for TripSync ($0 Free Architecture)
+# Architecture:
+# - tripsync-backend: Render Web Service using Docker Runtime (Free Tier: 512 MB RAM, 0.1 CPU)
+# - tripsync-frontend: Render Static Site (Free Tier: 100 GB Bandwidth)
+
+services:
+  # ============================================================================
+  # Backend Web Service (Docker Runtime)
+  # ============================================================================
+  - type: web
+    name: tripsync-backend
+    runtime: docker
+    dockerfilePath: Dockerfile
+    plan: free
+    region: singapore
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      # Provided by Neon PostgreSQL (Direct connection host with sslmode=require)
+      - key: SPRING_DATASOURCE_URL
+        sync: false
+      - key: SPRING_DATASOURCE_USERNAME
+        sync: false
+      - key: SPRING_DATASOURCE_PASSWORD
+        sync: false
+      # High-entropy 256-bit secret key for HMAC-SHA256 JWT validation
+      - key: JWT_SECRET
+        sync: false
+      # Comma-separated allowed origins (e.g. https://tripsync-frontend.onrender.com)
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+
+  # ============================================================================
+  # Frontend Static Site
+  # ============================================================================
+  - type: static
+    name: tripsync-frontend
+    runtime: static
+    plan: free
+    buildCommand: npm ci && npm run build
+    publishPath: dist
+    routes:
+      # Single-Page Application (SPA) client-side routing rewrite rule
+      # Redirects all subpath navigation to index.html to prevent 404 on refresh
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      # Target backend URL (e.g. https://tripsync-backend.onrender.com/api)
+      - key: VITE_API_URL
+        sync: false

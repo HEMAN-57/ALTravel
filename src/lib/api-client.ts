@@ -7,10 +7,16 @@ import {
   UserProfile,
 } from '../domain/auth/auth.types';
 
-const API_BASE_URL =
+const rawBase =
   (typeof import.meta !== 'undefined' &&
-    (import.meta as unknown as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL) ||
-  'http://localhost:8080/api';
+    (import.meta as unknown as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL?.trim()) ||
+  '';
+
+const API_BASE_URL = rawBase
+  ? (rawBase.replace(/\/+$/, '').endsWith('/api')
+      ? rawBase.replace(/\/+$/, '')
+      : `${rawBase.replace(/\/+$/, '')}/api`)
+  : 'http://localhost:8080/api';
 
 const SESSION_TOKEN_KEY = 'tripsync_auth_token_session';
 const SESSION_USER_KEY = 'tripsync_auth_user_session';
@@ -127,6 +133,24 @@ class ApiClient {
     return res.json() as Promise<T>;
   }
 
+  // --- Health & Diagnostic APIs ---
+
+  public async pingHealth(retries = 2, delayMs = 3000): Promise<boolean> {
+    const healthUrl = API_BASE_URL.replace(/\/api\/?$/, '') + '/actuator/health';
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const res = await fetch(healthUrl, { method: 'GET', credentials: 'omit' });
+        if (res.ok) return true;
+      } catch {
+        // Quiet fail on cold start probe
+      }
+      if (attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+    return false;
+  }
+
   // --- Auth APIs ---
 
   public async register(input: RegisterInput): Promise<AuthResponse> {
@@ -148,7 +172,7 @@ class ApiClient {
             err.message.includes('NetworkError')));
       if (isFetchError) {
         throw new Error(
-          'Unable to connect to the TripSync authentication server (http://localhost:8080). Please ensure the backend is running, or explore the simulated Goa demonstration without an account.'
+          'Unable to connect to the TripSync authentication server. If the cloud service is waking up from sleep, please wait 20–30 seconds and try again, or explore the simulated Goa demonstration without an account.'
         );
       }
       throw err;
@@ -174,7 +198,7 @@ class ApiClient {
             err.message.includes('NetworkError')));
       if (isFetchError) {
         throw new Error(
-          'Unable to connect to the TripSync authentication server (http://localhost:8080). Please ensure the backend is running, or explore the simulated Goa demonstration without an account.'
+          'Unable to connect to the TripSync authentication server. If the cloud service is waking up from sleep, please wait 20–30 seconds and try again, or explore the simulated Goa demonstration without an account.'
         );
       }
       throw err;
