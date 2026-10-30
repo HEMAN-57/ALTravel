@@ -152,7 +152,19 @@ export function validateBooking(input: unknown): ValidationResult<Booking> {
       candidate.confirmationReference.trim() !== ''
         ? candidate.confirmationReference.trim()
         : undefined,
+    participantMemberIds: Array.isArray(candidate.participantMemberIds)
+      ? (candidate.participantMemberIds as string[])
+      : undefined,
+    paidByMemberId:
+      typeof candidate.paidByMemberId === 'string' && candidate.paidByMemberId.trim() !== ''
+        ? candidate.paidByMemberId.trim()
+        : undefined,
+    costType:
+      candidate.costType === 'fixed_shared' || candidate.costType === 'per_person'
+        ? candidate.costType
+        : undefined,
   };
 
   return { success: true, data: booking, errors: [] };
 }
+

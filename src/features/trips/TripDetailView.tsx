@@ -20,7 +20,9 @@ import {
   Plane,
   Building,
   Compass,
+  Users,
 } from 'lucide-react';
+
 
 export interface TripDetailViewProps {
   trip: Trip;
@@ -244,6 +246,55 @@ export const TripDetailView: React.FC<TripDetailViewProps> = ({
             </div>
           </div>
 
+          {/* Trip Members & Personalised Profiles */}
+          {trip.members && trip.members.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-bold text-foreground tracking-tight flex items-center gap-2">
+                    <Users className="w-4 h-4 text-indigo-500" />
+                    Trip Travelers & Personalized Budgets ({trip.members.length})
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    Personalized preferences and budget ceilings for each group member.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {trip.members.map((m) => (
+                  <div key={m.id} className="p-3.5 rounded-xl border border-border bg-card shadow-xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-sm text-foreground">{m.name}</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold uppercase tracking-wider bg-secondary text-muted-foreground">
+                        {m.role}
+                      </span>
+                    </div>
+
+                    <div className="text-[11px] space-y-1 text-muted-foreground">
+                      <div className="flex justify-between">
+                        <span>Personal Budget:</span>
+                        <span className="font-semibold text-foreground">{formatCurrency(m.personalBudget, currency)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Pace / Style:</span>
+                        <span className="capitalize text-foreground font-medium">{m.preferences.preferredPace} · {m.preferences.costSensitivity}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1 pt-1 border-t border-border/40">
+                      {m.preferences.activityInterests.map((interest) => (
+                        <span key={interest} className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 capitalize">
+                          {interest}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Bookings Timeline Section */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -290,12 +341,14 @@ export const TripDetailView: React.FC<TripDetailViewProps> = ({
                   <BookingItem
                     key={b.id}
                     booking={b}
+                    members={trip.members}
                     onDelete={handleDeleteBooking}
                   />
                 ))}
               </div>
             )}
           </div>
+
         </>
       )}
 

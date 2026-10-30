@@ -122,7 +122,16 @@ export function validateTrip(input: unknown): ValidationResult<Trip> {
       typeof candidate.updatedAt === 'string' && isValidDateString(candidate.updatedAt)
         ? candidate.updatedAt
         : now,
+    members: Array.isArray(candidate.members) ? (candidate.members as Trip['members']) : undefined,
+    expenses: Array.isArray(candidate.expenses) ? (candidate.expenses as Trip['expenses']) : undefined,
+    settlements: Array.isArray(candidate.settlements) ? (candidate.settlements as Trip['settlements']) : undefined,
+    alerts: Array.isArray(candidate.alerts) ? (candidate.alerts as Trip['alerts']) : undefined,
+    financialSnapshots: Array.isArray(candidate.financialSnapshots)
+      ? (candidate.financialSnapshots as Trip['financialSnapshots'])
+      : undefined,
+    totalBudget: typeof candidate.totalBudget === 'number' ? candidate.totalBudget : undefined,
   };
 
   return { success: true, data: trip, errors: [] };
 }
+

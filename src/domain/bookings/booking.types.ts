@@ -23,6 +23,11 @@ export interface Booking {
   cancellationPolicyNotes?: string; // Summary of terms, e.g. "Non-refundable within 24h of activity"
   notes?: string; // Optional user or traveller notes
   confirmationReference?: string; // PNR or confirmation identifier
+  // TripSync group participation & allocation fields:
+  participantMemberIds?: string[]; // IDs of participating members (defaults to all active members)
+  paidByMemberId?: string; // ID of member who paid upfront (defaults to organizer/first member)
+  costType?: 'fixed_shared' | 'per_person'; // fixed_shared (e.g. rental villa) vs per_person (e.g. flight ticket)
 }
 
 export type CreateBookingInput = Omit<Booking, 'id'> & { id?: string };
+

@@ -4,7 +4,14 @@ import { Compass, Plus, Menu, X, RotateCcw, AlertTriangle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Modal } from '../ui/Modal';
 
-export type NavTab = 'dashboard' | 'trips' | 'recovery';
+export type NavTab =
+  | 'dashboard'
+  | 'trips'
+  | 'ledger'
+  | 'recalculation'
+  | 'consensus'
+  | 'alerts'
+  | 'recovery';
 
 export interface NavbarProps {
   activeTab: NavTab;
@@ -39,36 +46,36 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           {/* Brand Logo & Tagline */}
-          <div className="flex items-center gap-8">
+          <div className="flex items-center gap-6">
             <button
               onClick={() => handleNavClick('dashboard')}
               className="flex items-center gap-2.5 text-left group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-lg p-1"
             >
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm transition-transform group-hover:scale-105">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm transition-transform group-hover:scale-105">
                 <Compass className="h-5 w-5" />
               </div>
               <div>
-                <span className="text-lg font-bold tracking-tight text-foreground flex items-center gap-1.5">
-                  ALTravel
-                  <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.2 bg-primary/10 text-primary rounded border border-primary/20">
-                    M1
+                <span className="text-lg font-extrabold tracking-tight text-foreground flex items-center gap-1.5">
+                  TripSync
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.2 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded border border-indigo-500/20">
+                    v2.0
                   </span>
                 </span>
                 <span className="hidden sm:block text-[11px] text-muted-foreground font-medium leading-none">
-                  When travel goes wrong, find your next best move.
+                  Intelligent Group Travel & Expense Management
                 </span>
               </div>
             </button>
 
             {/* Desktop Navigation */}
-            <nav className="hidden md:flex items-center space-x-1" aria-label="Main Navigation">
+            <nav className="hidden lg:flex items-center space-x-1" aria-label="Main Navigation">
               <button
                 type="button"
                 onClick={() => handleNavClick('dashboard')}
                 className={cn(
-                  'px-3.5 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer',
+                  'px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer',
                   activeTab === 'dashboard'
-                    ? 'bg-secondary text-primary font-semibold'
+                    ? 'bg-secondary text-primary font-bold'
                     : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                 )}
               >
@@ -79,15 +86,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                 type="button"
                 onClick={() => handleNavClick('trips')}
                 className={cn(
-                  'px-3.5 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 cursor-pointer',
+                  'px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer',
                   activeTab === 'trips'
-                    ? 'bg-secondary text-primary font-semibold'
+                    ? 'bg-secondary text-primary font-bold'
                     : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                 )}
               >
-                <span>My Trips</span>
+                <span>Itinerary</span>
                 {tripCount > 0 && (
-                  <span className="px-1.5 py-0.5 text-xs rounded-full bg-primary/10 text-primary font-semibold">
+                  <span className="px-1.5 py-0.2 text-[10px] rounded-full bg-primary/10 text-primary font-bold">
                     {tripCount}
                   </span>
                 )}
@@ -95,21 +102,77 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               <button
                 type="button"
-                onClick={() => handleNavClick('recovery')}
+                onClick={() => handleNavClick('ledger')}
                 className={cn(
-                  'px-3.5 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 cursor-pointer',
-                  activeTab === 'recovery'
-                    ? 'bg-secondary text-primary font-semibold'
+                  'px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer',
+                  activeTab === 'ledger'
+                    ? 'bg-secondary text-indigo-600 dark:text-indigo-400 font-bold'
                     : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                 )}
               >
-                <span>Recovery Planner</span>
-                <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                  M2 Preview
+                <span>Group Ledger</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavClick('recalculation')}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer',
+                  activeTab === 'recalculation'
+                    ? 'bg-secondary text-rose-600 dark:text-rose-400 font-bold'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                )}
+              >
+                <span>Financial Replanning</span>
+                <span className="text-[9px] uppercase font-bold px-1 py-0.2 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                  USP
                 </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavClick('consensus')}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer',
+                  activeTab === 'consensus'
+                    ? 'bg-secondary text-teal-600 dark:text-teal-400 font-bold'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                )}
+              >
+                <span>Consensus Engine</span>
+                <span className="text-[9px] uppercase font-bold px-1 py-0.2 rounded bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20">
+                  X-Factor
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavClick('alerts')}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer',
+                  activeTab === 'alerts'
+                    ? 'bg-secondary text-sky-600 dark:text-sky-400 font-bold'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                )}
+              >
+                <span>Alerts</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavClick('recovery')}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer',
+                  activeTab === 'recovery'
+                    ? 'bg-secondary text-primary font-bold'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                )}
+              >
+                <span>Disruption DAG</span>
               </button>
             </nav>
           </div>
+
 
           {/* Desktop Actions */}
           <div className="hidden md:flex items-center gap-3">
@@ -192,6 +255,54 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
           <button
             type="button"
+            onClick={() => handleNavClick('ledger')}
+            className={cn(
+              'w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between',
+              activeTab === 'ledger'
+                ? 'bg-secondary text-indigo-600 dark:text-indigo-400 font-semibold'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+            )}
+          >
+            <span>Group Ledger</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleNavClick('recalculation')}
+            className={cn(
+              'w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between',
+              activeTab === 'recalculation'
+                ? 'bg-secondary text-rose-600 dark:text-rose-400 font-semibold'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+            )}
+          >
+            <span>Financial Replanning (USP)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleNavClick('consensus')}
+            className={cn(
+              'w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between',
+              activeTab === 'consensus'
+                ? 'bg-secondary text-teal-600 dark:text-teal-400 font-semibold'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+            )}
+          >
+            <span>Consensus Engine (X-Factor)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleNavClick('alerts')}
+            className={cn(
+              'w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between',
+              activeTab === 'alerts'
+                ? 'bg-secondary text-sky-600 dark:text-sky-400 font-semibold'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+            )}
+          >
+            <span>Alerts</span>
+          </button>
+          <button
+            type="button"
             onClick={() => handleNavClick('recovery')}
             className={cn(
               'w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between',
@@ -200,11 +311,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground'
             )}
           >
-            <span>Recovery Planner</span>
-            <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-              M2 Preview
-            </span>
+            <span>Disruption DAG</span>
           </button>
+
 
           <div className="pt-2 border-t border-border/60">
             <button

@@ -16,6 +16,11 @@ import { TripDetailView } from './features/trips/TripDetailView';
 import { EmptyState } from './features/trips/EmptyState';
 import { CreateTripModal } from './features/trips/CreateTripModal';
 import { RecoveryPlannerView } from './features/recovery/RecoveryPlannerView';
+import { GroupLedgerView } from './features/ledger/GroupLedgerView';
+import { ChangeAwareRecalculationView } from './features/recalculation/ChangeAwareRecalculationView';
+import { GroupConsensusView } from './features/consensus/GroupConsensusView';
+import { AlertsCenterView } from './features/alerts/AlertsCenterView';
+import { SAMPLE_TRIP } from './lib/demo-data';
 import { Button } from './components/ui/Button';
 import { Card, CardContent } from './components/ui/Card';
 import { Alert } from './components/ui/Alert';
@@ -28,7 +33,12 @@ import {
   ShieldCheck,
   Calendar,
   HardDrive,
+  Wallet,
+  Scale,
+  RefreshCw,
 } from 'lucide-react';
+
+
 
 export const App: React.FC = () => {
   const [trips, setTrips] = useState<Trip[]>([]);
@@ -162,17 +172,17 @@ export const App: React.FC = () => {
       {activeTab === 'dashboard' && (
         <div className="space-y-8">
           {/* Hero Welcome Banner */}
-          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-900 via-slate-800 to-sky-950 text-white p-6 sm:p-8 shadow-sm">
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 sm:p-8 shadow-sm border border-slate-800">
             <div className="relative z-10 max-w-2xl space-y-3">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 text-sky-200 text-xs font-semibold backdrop-blur-sm border border-white/10">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 text-indigo-300 text-xs font-semibold backdrop-blur-sm border border-white/10">
                 <Compass className="w-3.5 h-3.5" />
-                <span>Travel Disruption Protection</span>
+                <span>Intelligent Group Travel Planning & Expense Management</span>
               </div>
               <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight">
-                When travel goes wrong, find your next best move.
+                When group travel changes, keep every balance & preference in sync.
               </h1>
               <p className="text-sm sm:text-base text-slate-300 leading-relaxed font-normal">
-                ALTravel models connected bookings, traces downstream consequences, and prepares you to act decisively when delays or cancellations occur.
+                TripSync balances individual preferences and personal budget constraints while recalculating everyone's financial responsibilities whenever bookings, prices, activities, or group membership change.
               </p>
 
               <div className="flex flex-wrap items-center gap-3 pt-3">
@@ -180,7 +190,7 @@ export const App: React.FC = () => {
                   variant="primary"
                   size="sm"
                   onClick={() => setIsCreateTripOpen(true)}
-                  className="bg-sky-500 hover:bg-sky-400 text-white font-semibold"
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold shadow-sm"
                 >
                   <Plus className="w-4 h-4 mr-1.5" />
                   Create New Trip
@@ -190,13 +200,45 @@ export const App: React.FC = () => {
                   variant="outline"
                   size="sm"
                   onClick={handleLoadSampleTrip}
-                  className="bg-white/10 text-white border-white/20 hover:bg-white/20"
+                  className="bg-white/10 text-white border-white/20 hover:bg-white/20 font-semibold"
                 >
                   <Sparkles className="w-4 h-4 mr-1.5 text-amber-300" />
-                  Load Sample Trip (Hyderabad → Goa)
+                  Load Sample Trip (4-Member Goa Demo)
+                </Button>
+
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setActiveTab('ledger')}
+                  className="bg-white/10 text-white border-white/20 hover:bg-white/20"
+                >
+                  <Wallet className="w-4 h-4 mr-1.5 text-indigo-300" />
+                  Group Ledger & Splits
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setActiveTab('recalculation')}
+                  className="bg-white/10 text-white border-white/20 hover:bg-white/20"
+                >
+                  <RefreshCw className="w-4 h-4 mr-1.5 text-rose-300" />
+                  Financial Replanning (USP)
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setActiveTab('consensus')}
+                  className="bg-white/10 text-white border-white/20 hover:bg-white/20"
+                >
+                  <Scale className="w-4 h-4 mr-1.5 text-teal-300" />
+                  Consensus Engine (X-Factor)
                 </Button>
               </div>
             </div>
+
 
             {/* Subtle decorative background compass ring */}
             <div className="absolute -right-8 -bottom-12 opacity-10 pointer-events-none">
@@ -359,6 +401,35 @@ export const App: React.FC = () => {
         </div>
       )}
 
+      {/* GROUP LEDGER & SMART BUDGET TAB */}
+      {activeTab === 'ledger' && (
+        <GroupLedgerView
+          trip={activeTrip || trips[0] || SAMPLE_TRIP}
+          onUpdateTrip={handleUpdateTrip}
+        />
+      )}
+
+      {/* CHANGE-AWARE FINANCIAL REPLANNING (USP) TAB */}
+      {activeTab === 'recalculation' && (
+        <ChangeAwareRecalculationView
+          trip={activeTrip || trips[0] || SAMPLE_TRIP}
+          onUpdateTrip={handleUpdateTrip}
+        />
+      )}
+
+      {/* GROUP CONSENSUS ENGINE (X-FACTOR) TAB */}
+      {activeTab === 'consensus' && (
+        <GroupConsensusView
+          trip={activeTrip || trips[0] || SAMPLE_TRIP}
+          onUpdateTrip={handleUpdateTrip}
+        />
+      )}
+
+      {/* ALERTS & NOTIFICATIONS TAB */}
+      {activeTab === 'alerts' && (
+        <AlertsCenterView trip={activeTrip || trips[0] || SAMPLE_TRIP} />
+      )}
+
       {/* RECOVERY PLANNER TAB */}
       {activeTab === 'recovery' && (
         <RecoveryPlannerView
@@ -369,6 +440,7 @@ export const App: React.FC = () => {
           onGoToBookings={() => setActiveTab('trips')}
         />
       )}
+
 
       {/* Create Trip Modal */}
       <CreateTripModal

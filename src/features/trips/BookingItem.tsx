@@ -1,5 +1,6 @@
 import React from 'react';
 import { Booking } from '../../domain/bookings/booking.types';
+import { TripMember } from '../../domain/group/member.types';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { formatCurrency, formatDateTime } from '../../lib/utils';
@@ -7,10 +8,12 @@ import { Clock, MapPin, FileText, Calendar, Trash2 } from 'lucide-react';
 
 export interface BookingItemProps {
   booking: Booking;
+  members?: TripMember[];
   onDelete?: (bookingId: string) => void;
 }
 
-export const BookingItem: React.FC<BookingItemProps> = ({ booking, onDelete }) => {
+export const BookingItem: React.FC<BookingItemProps> = ({ booking, members, onDelete }) => {
+
   return (
     <Card className="hover:border-primary/40 transition-all shadow-sm">
       <CardContent className="p-5 space-y-4">
@@ -108,6 +111,34 @@ export const BookingItem: React.FC<BookingItemProps> = ({ booking, onDelete }) =
           </div>
         )}
 
+        {/* Participant & Payer Tags (if present) */}
+        {booking.participantMemberIds && booking.participantMemberIds.length > 0 && (
+          <div className="flex items-center gap-2 text-xs pt-1 border-t border-border/40 flex-wrap">
+            <span className="text-[11px] font-semibold text-muted-foreground">Participants:</span>
+            <div className="flex flex-wrap gap-1">
+              {booking.participantMemberIds.map((pid) => {
+                const member = members?.find((m) => m.id === pid);
+                return (
+                  <span
+                    key={pid}
+                    className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
+                  >
+                    {member ? member.name.split(' ')[0] : pid}
+                  </span>
+                );
+              })}
+            </div>
+            {booking.paidByMemberId && (
+              <span className="text-[11px] text-muted-foreground ml-auto">
+                Paid by:{' '}
+                <strong className="text-foreground">
+                  {members?.find((m) => m.id === booking.paidByMemberId)?.name || booking.paidByMemberId}
+                </strong>
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Notes (if present) */}
         {booking.notes && (
           <div className="flex items-start gap-2 text-xs text-muted-foreground pt-1">
@@ -119,3 +150,4 @@ export const BookingItem: React.FC<BookingItemProps> = ({ booking, onDelete }) =
     </Card>
   );
 };
+
