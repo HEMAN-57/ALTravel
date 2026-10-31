@@ -39,7 +39,7 @@ public class SecurityConfig {
     public SecurityConfig(
             JwtAuthenticationFilter jwtAuthenticationFilter,
             UserDetailsServiceImpl userDetailsService,
-            @Value("${app.cors.allowed-origins:http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173}") String allowedOriginsStr) {
+            @Value("${app.cors.allowed-origins:http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,https://*.onrender.com}") String allowedOriginsStr) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.userDetailsService = userDetailsService;
         this.allowedOrigins = Arrays.stream(allowedOriginsStr.split(","))
@@ -112,16 +112,28 @@ public class SecurityConfig {
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+
+        // 1. Safe, uncredentialed public CORS configuration for Actuator endpoints (health, info)
+        // Allows unauthenticated GET and OPTIONS probes from any origin without exposing credentials or internal APIs
+        CorsConfiguration healthCors = new CorsConfiguration();
+        healthCors.addAllowedOriginPattern("*");
+        healthCors.setAllowedMethods(List.of("GET", "OPTIONS"));
+        healthCors.setAllowedHeaders(List.of("Accept", "Content-Type", "Origin"));
+        healthCors.setAllowCredentials(false);
+        healthCors.setMaxAge(3600L);
+        source.registerCorsConfiguration("/actuator/**", healthCors);
+
+        // 2. Strict, credentialed CORS configuration for application APIs (/api/**)
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(allowedOrigins);
+        configuration.setAllowedOriginPatterns(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin"));
         configuration.setExposedHeaders(List.of("Authorization", "Set-Cookie"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
-
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
+
         return source;
     }
 }

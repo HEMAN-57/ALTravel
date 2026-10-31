@@ -61,7 +61,7 @@ This guide documents the manual deployment procedure for TripSync on **Render** 
    | `SPRING_DATASOURCE_USERNAME` | `<neon-db-user>` | Neon database user name |
    | `SPRING_DATASOURCE_PASSWORD` | `<neon-db-password>` | Neon database user password |
    | `JWT_SECRET` | *(64+ character random hex or base64 string)* | Cryptographic HMAC-SHA256 secret key for signing and validating session tokens |
-   | `CORS_ALLOWED_ORIGINS` | `https://tripsync-frontend.onrender.com` | Allowed frontend origin for CORS browser protection (update after creating frontend) |
+   | `CORS_ALLOWED_ORIGINS` | `https://*.onrender.com,https://<your-frontend>.onrender.com` | Allowed frontend origin for CORS browser protection (supports wildcards e.g. `https://*.onrender.com`) |
 
    *(Note: Render automatically injects the `PORT` environment variable, which our entrypoint dynamically binds to Spring Boot).*
 
@@ -108,10 +108,11 @@ This guide documents the manual deployment procedure for TripSync on **Render** 
 ## Step 4: Finalize CORS Configuration
 
 1. Return to the `tripsync-backend` Web Service on Render.
-2. Under **Environment**, update `CORS_ALLOWED_ORIGINS` with the exact static site URL:
+2. Under **Environment**, update `CORS_ALLOWED_ORIGINS` to include your exact static site URL and/or Render wildcard pattern:
    ```text
-   CORS_ALLOWED_ORIGINS=https://tripsync-frontend.onrender.com
+   CORS_ALLOWED_ORIGINS=https://tripsync-frontend-8h9q.onrender.com,https://*.onrender.com
    ```
+   > **Note:** Render assigns a randomized subdomain suffix (e.g. `tripsync-frontend-8h9q.onrender.com`). Setting `https://*.onrender.com` or your exact assigned domain ensures browser requests are not blocked by CORS with HTTP 403 `Invalid CORS request`.
 3. Save changes. Render will perform a quick rolling redeploy.
 
 ---
